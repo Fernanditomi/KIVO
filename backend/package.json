@@ -1,0 +1,22 @@
+{
+  "name": "kivo-backend",
+  "version": "1.1.0",
+  "description": "Backend real de KIVO: autenticacion con Clerk, chat en tiempo real y notificaciones",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@clerk/backend": "^1.30.2",
+    "@clerk/express": "^1.4.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pg": "^8.13.0",
+    "socket.io": "^4.7.5"
+  }
+}

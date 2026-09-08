@@ -1,0 +1,52 @@
+import { Router } from 'express';
+import { randomUUID } from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { requireAuth } from '../auth.js';
+
+const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
+
+export function ensureUploadsDir() {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
+const MIME_EXT = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif'
+};
+
+const router = Router();
+router.use(requireAuth);
+
+router.post('/', async (req, res) => {
+  try {
+    const { base64 } = req.body || {};
+    if (!base64 || typeof base64 !== 'string') {
+      return res.status(400).json({ error: 'Falta la imagen' });
+    }
+
+    const mimeMatch = /^data:([^;]+);base64,(.+)$/.exec(base64);
+    const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    const data = mimeMatch
+      ? Buffer.from(mimeMatch[2], 'base64')
+      : Buffer.from(base64, 'base64');
+
+    const ext = MIME_EXT[mime.toLowerCase()];
+    if (!ext) return res.status(400).json({ error: 'Formato de imagen no soportado' });
+    if (data.length === 0) return res.status(400).json({ error: 'Imagen vacia' });
+    if (data.length > 20 * 1024 * 1024) return res.status(413).json({ error: 'Imagen demasiado grande' });
+
+    ensureUploadsDir();
+    const name = `${randomUUID()}${ext}`;
+    fs.writeFileSync(path.join(UPLOADS_DIR, name), data);
+
+    res.status(201).json({ url: `/uploads/${name}` });
+  } catch (e) {
+    console.error('[uploads]', e);
+    res.status(500).json({ error: 'Error al subir la imagen' });
+  }
+});
+
+export default router;
