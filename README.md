@@ -1,6 +1,6 @@
 # 🎧🔥 Proyecto: KIVO — Música, Juegos & Chisme
 
-KIVO es una aplicación móvil de entretenimiento diseñada para la generación Z. Combina lo mejor del streaming de música, juegos rápidos (trivias) y contenido corto tipo "shorts" enfocado en las tendencias y el chisme del momento.
+KIVO es una aplicación móvil de entretenimiento diseñada para todos. Combina lo mejor del streaming de música, juegos rápidos (trivias) y contenido corto tipo "shorts" enfocado en las tendencias y el chisme del momento.
 
 ## 🚀 Misión
 Crear una aplicación móvil/social llamada KIVO, una plataforma de entretenimiento juvenil que combina música, micro-contenido viral y juegos sociales, todo bajo una identidad visual potente y oscura (Black & Neon).
