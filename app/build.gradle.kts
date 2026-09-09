@@ -7,6 +7,14 @@ android {
     namespace = "com.example.kivo"
     compileSdk = 37
 
+    packaging {
+        resources {
+            excludes += "META-INF/LICENSE.md"
+            excludes += "META-INF/LICENSE-notice.md"
+            excludes += "META-INF/DEPENDENCIES"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.example.kivo"
         minSdk = 24
@@ -35,6 +43,11 @@ android {
             "String",
             "CLERK_PUBLISHABLE_KEY",
             "\"${providers.gradleProperty("CLERK_PUBLISHABLE_KEY").orElse("").get()}\""
+        )
+        buildConfigField(
+            "String",
+            "AGORA_APP_ID",
+            "\"${providers.gradleProperty("AGORA_APP_ID").orElse("").get()}\""
         )
     }
 
@@ -92,6 +105,9 @@ dependencies {
 
     // Audio recording
     implementation("androidx.media:media:1.7.0")
+
+    // Agora SDK para llamadas/videollamadas
+    implementation("io.agora.rtc:lite-sdk:4.4.1")
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

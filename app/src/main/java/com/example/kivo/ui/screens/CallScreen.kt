@@ -2,10 +2,9 @@ package com.example.kivo.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.widget.Toast
+import android.widget.FrameLayout
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -21,10 +20,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
-import com.example.kivo.data.remote.ApiClient
+import com.example.kivo.data.remote.AgoraManager
 import com.example.kivo.data.remote.CallManager
 import com.example.kivo.data.remote.CallType
 import com.example.kivo.data.remote.CallState
@@ -46,6 +44,7 @@ fun CallScreen(
     val isMuted by CallManager.isMuted.collectAsState()
     val isSpeaker by CallManager.isSpeaker.collectAsState()
     val callDuration by CallManager.callDuration.collectAsState()
+    val remoteUserJoined by CallManager.remoteUserJoined.collectAsState()
 
     var hasAudioPermission by remember {
         mutableStateOf(
@@ -58,6 +57,11 @@ fun CallScreen(
         )
     }
 
+    val isVideo = callType == "video"
+    val agoraManager = remember { AgoraManager(context) }
+    var localContainer by remember { mutableStateOf<FrameLayout?>(null) }
+    var remoteContainer by remember { mutableStateOf<FrameLayout?>(null) }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -67,8 +71,24 @@ fun CallScreen(
 
     LaunchedEffect(Unit) {
         val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
-        if (callType == "video") permissions.add(Manifest.permission.CAMERA)
+        if (isVideo) permissions.add(Manifest.permission.CAMERA)
         permissionLauncher.launch(permissions.toTypedArray())
+        CallManager.setAgoraManager(agoraManager)
+        agoraManager.initialize()
+    }
+
+    LaunchedEffect(callState) {
+        if (callState == CallState.Active || callState == CallState.Connecting) {
+            if (isVideo) {
+                localContainer?.let { agoraManager.setupLocalVideo(it) }
+            }
+        }
+    }
+
+    LaunchedEffect(remoteUserJoined) {
+        if (remoteUserJoined && isVideo) {
+            remoteContainer?.let { agoraManager.setupRemoteVideo(1, it) }
+        }
     }
 
     LaunchedEffect(callState) {
@@ -82,7 +102,14 @@ fun CallScreen(
 
     LaunchedEffect(callState) {
         if (callState == CallState.Ended) {
+            agoraManager.destroy()
             onEndCall()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            agoraManager.destroy()
         }
     }
 
@@ -91,6 +118,29 @@ fun CallScreen(
             .fillMaxSize()
             .background(KivoBlack)
     ) {
+        if (isVideo) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                AndroidView(
+                    factory = { ctx ->
+                        FrameLayout(ctx).apply { remoteContainer = this }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+                AndroidView(
+                    factory = { ctx ->
+                        FrameLayout(ctx).apply {
+                            localContainer = this
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .size(120.dp, 180.dp)
+                        .clip(MaterialTheme.shapes.medium)
+                )
+            }
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -100,17 +150,24 @@ fun CallScreen(
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(top = 60.dp)
+                modifier = Modifier.padding(top = if (isVideo) 240.dp else 60.dp)
             ) {
-                AsyncImage(
-                    model = ApiClient.resolveUrl(null) ?: "https://www.w3schools.com/howto/img_avatar.png",
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(100.dp)
-                        .clip(CircleShape)
-                        .background(KivoSurface2),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                )
+                if (!isVideo) {
+                    Box(
+                        modifier = Modifier
+                            .size(100.dp)
+                            .clip(CircleShape)
+                            .background(KivoSurface2),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = otherUserName.take(1).uppercase(),
+                            color = KivoPurpleMain,
+                            fontSize = 40.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -142,7 +199,7 @@ fun CallScreen(
                 )
             }
 
-            if (callState == CallState.Active) {
+            if (callState == CallState.Active && !isVideo) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
@@ -181,6 +238,47 @@ fun CallScreen(
                             )
                         }
                         Text("Altavoz", color = KivoTextSecondary, fontSize = 12.sp)
+                    }
+                }
+            }
+
+            if (callState == CallState.Active && isVideo) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        IconButton(
+                            onClick = { CallManager.toggleMute() },
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(if (isMuted) KivoPink else KivoSurface3)
+                        ) {
+                            Icon(
+                                if (isMuted) Icons.Filled.MicOff else Icons.Filled.Mic,
+                                contentDescription = "Micrófono",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        IconButton(
+                            onClick = { CallManager.toggleCamera() },
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(KivoSurface3)
+                        ) {
+                            Icon(
+                                Icons.Filled.Cameraswitch,
+                                contentDescription = "Cambiar cámara",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
                     }
                 }
             }

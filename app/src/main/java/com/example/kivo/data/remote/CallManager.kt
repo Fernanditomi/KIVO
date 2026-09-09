@@ -1,10 +1,8 @@
 package com.example.kivo.data.remote
 
-import com.google.gson.Gson
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import org.json.JSONObject
 
 enum class CallType { VOICE, VIDEO }
 
@@ -25,12 +23,11 @@ data class CallInfo(
     val receiverId: String = "",
     val receiverName: String = "",
     val type: CallType = CallType.VOICE,
-    val state: CallState = CallState.Idle
+    val state: CallState = CallState.Idle,
+    val channelName: String = ""
 )
 
 object CallManager {
-    private val gson = Gson()
-
     private val _currentCall = MutableStateFlow(CallInfo())
     val currentCall: StateFlow<CallInfo> = _currentCall.asStateFlow()
 
@@ -46,7 +43,40 @@ object CallManager {
     private val _callDuration = MutableStateFlow(0L)
     val callDuration: StateFlow<Long> = _callDuration.asStateFlow()
 
+    private val _remoteUserJoined = MutableStateFlow(false)
+    val remoteUserJoined: StateFlow<Boolean> = _remoteUserJoined.asStateFlow()
+
     private var callStartTime: Long = 0L
+    private var agoraManager: AgoraManager? = null
+
+    private fun generateChannelName(id1: String, id2: String): String {
+        val sorted = listOf(id1, id2).sorted()
+        return "kivo_${sorted[0]}_${sorted[1]}"
+    }
+
+    fun setAgoraManager(manager: AgoraManager) {
+        agoraManager = manager
+        manager.onRemoteUserJoined = { uid ->
+            _remoteUserJoined.value = true
+            if (_callState.value == CallState.Connecting) {
+                callStartTime = System.currentTimeMillis()
+                _callState.value = CallState.Active
+                _currentCall.value = _currentCall.value.copy(state = CallState.Active)
+            }
+        }
+        manager.onRemoteUserLeft = { _ ->
+            endCall()
+        }
+        manager.onJoinChannelSuccess = { _, _ ->
+            if (_callState.value == CallState.Outgoing || _callState.value == CallState.Connecting) {
+                _callState.value = CallState.Connecting
+                _currentCall.value = _currentCall.value.copy(state = CallState.Connecting)
+            }
+        }
+        manager.onError = { errCode ->
+            _callState.value = CallState.Error("Error: $errCode")
+        }
+    }
 
     fun initiateCall(
         callerId: String,
@@ -56,6 +86,8 @@ object CallManager {
         type: CallType
     ) {
         val callId = "call_${System.currentTimeMillis()}"
+        val channelName = generateChannelName(callerId, receiverId)
+
         _currentCall.value = CallInfo(
             callId = callId,
             callerId = callerId,
@@ -63,11 +95,24 @@ object CallManager {
             receiverId = receiverId,
             receiverName = receiverName,
             type = type,
-            state = CallState.Outgoing
+            state = CallState.Outgoing,
+            channelName = channelName
         )
         _callState.value = CallState.Outgoing
 
         SocketManager.emitCallOffer(callId, callerId, callerName, receiverId, type)
+    }
+
+    fun joinAgoraChannel(isVideo: Boolean) {
+        val call = _currentCall.value
+        if (call.channelName.isEmpty()) return
+
+        val uid = (System.currentTimeMillis() % 10000).toInt()
+        if (isVideo) {
+            agoraManager?.joinVideoChannel(null, call.channelName, uid)
+        } else {
+            agoraManager?.joinVoiceChannel(null, call.channelName, uid)
+        }
     }
 
     fun receiveCall(
@@ -77,13 +122,15 @@ object CallManager {
         receiverId: String,
         type: CallType
     ) {
+        val channelName = generateChannelName(callerId, receiverId)
         _currentCall.value = CallInfo(
             callId = callId,
             callerId = callerId,
             callerName = callerName,
             receiverId = receiverId,
             type = type,
-            state = CallState.Incoming
+            state = CallState.Incoming,
+            channelName = channelName
         )
         _callState.value = CallState.Incoming
     }
@@ -93,11 +140,10 @@ object CallManager {
         _callState.value = CallState.Connecting
         _currentCall.value = call.copy(state = CallState.Connecting)
 
-        SocketManager.emitCallAnswer(call.callId, call.callerId, call.receiverId)
+        val isVideo = call.type == CallType.VIDEO
+        joinAgoraChannel(isVideo)
 
-        callStartTime = System.currentTimeMillis()
-        _callState.value = CallState.Active
-        _currentCall.value = call.copy(state = CallState.Active)
+        SocketManager.emitCallAnswer(call.callId, call.callerId, call.receiverId)
     }
 
     fun rejectCall() {
@@ -111,20 +157,27 @@ object CallManager {
         if (call.callId.isNotEmpty()) {
             SocketManager.emitCallEnd(call.callId, call.callerId)
         }
+        agoraManager?.leaveChannel()
         _callState.value = CallState.Ended
         _currentCall.value = CallInfo()
         _isMuted.value = false
         _isSpeaker.value = false
         _callDuration.value = 0L
+        _remoteUserJoined.value = false
         callStartTime = 0L
     }
 
     fun toggleMute() {
         _isMuted.value = !_isMuted.value
+        agoraManager?.toggleMute(_isMuted.value)
     }
 
     fun toggleSpeaker() {
         _isSpeaker.value = !_isSpeaker.value
+    }
+
+    fun toggleCamera() {
+        agoraManager?.switchCamera()
     }
 
     fun updateDuration() {
@@ -145,9 +198,8 @@ object CallManager {
 
     fun handleCallAnswer(callId: String) {
         if (_currentCall.value.callId == callId) {
-            callStartTime = System.currentTimeMillis()
-            _callState.value = CallState.Active
-            _currentCall.value = _currentCall.value.copy(state = CallState.Active)
+            val isVideo = _currentCall.value.type == CallType.VIDEO
+            joinAgoraChannel(isVideo)
         }
     }
 
