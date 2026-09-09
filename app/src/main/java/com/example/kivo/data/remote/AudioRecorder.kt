@@ -1,78 +1,61 @@
 package com.example.kivo.data.remote
 
-import android.media.AudioFormat
-import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Build
 import kotlinx.coroutines.*
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileOutputStream
 
 class AudioRecorder {
-    private var audioRecord: AudioRecord? = null
+    private var mediaRecorder: MediaRecorder? = null
     private var isRecording = false
-    private var recordingJob: Job? = null
-
-    companion object {
-        private const val SAMPLE_RATE = 44100
-        private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
-        private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
-        private const val BUFFER_SIZE_MULTIPLIER = 2
-    }
+    private var outputFile: File? = null
+    private var amplitudeJob: Job? = null
 
     fun startRecording(onAmplitude: (Float) -> Unit = {}): File? {
         if (isRecording) return null
 
-        val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT) * BUFFER_SIZE_MULTIPLIER
-        if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) return null
-
         return try {
-            audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                SAMPLE_RATE,
-                CHANNEL_CONFIG,
-                AUDIO_FORMAT,
-                bufferSize
-            )
+            outputFile = File.createTempFile("kivo_audio_", ".m4a")
 
-            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                audioRecord?.release()
-                audioRecord = null
-                return null
+            mediaRecorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                MediaRecorder()
+            } else {
+                @Suppress("DEPRECATION")
+                MediaRecorder()
+            }
+
+            mediaRecorder?.apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioSamplingRate(44100)
+                setAudioEncodingBitRate(128000)
+                setMaxDuration(300000) // 5 minutos max
+                setOutputFile(outputFile?.absolutePath)
+                prepare()
+                start()
             }
 
             isRecording = true
-            audioRecord?.startRecording()
 
-            val outputFile = File.createTempFile("kivo_audio_", ".pcm")
-            recordingJob = CoroutineScope(Dispatchers.IO).launch {
-                val buffer = ShortArray(bufferSize / 2)
-                val outputStream = ByteArrayOutputStream()
-                val maxAmplitude = Short.MAX_VALUE.toFloat()
-
+            amplitudeJob = CoroutineScope(Dispatchers.IO).launch {
                 while (isRecording && isActive) {
-                    val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
-                    if (read > 0) {
-                        val bytes = ShortArray(read) { buffer[it] }
-                        for (sample in bytes) {
-                            outputStream.write(sample.toInt() and 0xFF)
-                            outputStream.write((sample.toInt() shr 8) and 0xFF)
-                        }
-                        val amplitude = bytes.maxOfOrNull { kotlin.math.abs(it.toFloat()) } ?: 0f
+                    try {
+                        val amp = mediaRecorder?.maxAmplitude ?: 0
+                        val normalized = (amp.toFloat() / 32767f).coerceIn(0f, 1f)
                         withContext(Dispatchers.Main) {
-                            onAmplitude(amplitude / maxAmplitude)
+                            onAmplitude(normalized)
                         }
-                    }
+                    } catch (_: Exception) {}
+                    delay(100)
                 }
-
-                FileOutputStream(outputFile).use { it.write(outputStream.toByteArray()) }
             }
 
             outputFile
         } catch (e: Exception) {
             isRecording = false
-            audioRecord?.release()
-            audioRecord = null
+            mediaRecorder?.release()
+            mediaRecorder = null
             null
         }
     }
@@ -80,19 +63,25 @@ class AudioRecorder {
     fun stopRecording(): File? {
         if (!isRecording) return null
         isRecording = false
-        recordingJob?.cancel()
-        audioRecord?.stop()
-        audioRecord?.release()
-        audioRecord = null
-        return null
+        amplitudeJob?.cancel()
+        return try {
+            mediaRecorder?.stop()
+            mediaRecorder?.release()
+            mediaRecorder = null
+            outputFile
+        } catch (e: Exception) {
+            mediaRecorder?.release()
+            mediaRecorder = null
+            null
+        }
     }
 
     fun isRecording(): Boolean = isRecording
 
     fun release() {
         isRecording = false
-        recordingJob?.cancel()
-        audioRecord?.release()
-        audioRecord = null
+        amplitudeJob?.cancel()
+        mediaRecorder?.release()
+        mediaRecorder = null
     }
 }

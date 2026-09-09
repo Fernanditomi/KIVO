@@ -75,7 +75,7 @@ object ChatRepository {
         val bytes = audioFile.readBytes()
         val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
         val response = ApiClient.service.uploadImage(
-            UploadImageRequest(base64 = "data:audio/aac;base64,$base64")
+            UploadImageRequest(base64 = "data:audio/mp4;base64,$base64")
         )
         response.url
     }

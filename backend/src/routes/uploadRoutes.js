@@ -14,7 +14,13 @@ const MIME_EXT = {
   'image/jpeg': '.jpg',
   'image/png': '.png',
   'image/webp': '.webp',
-  'image/gif': '.gif'
+  'image/gif': '.gif',
+  'audio/aac': '.aac',
+  'audio/mp4': '.m4a',
+  'audio/m4a': '.m4a',
+  'audio/mpeg': '.mp3',
+  'audio/wav': '.wav',
+  'audio/ogg': '.ogg'
 };
 
 const router = Router();
@@ -24,7 +30,7 @@ router.post('/', async (req, res) => {
   try {
     const { base64 } = req.body || {};
     if (!base64 || typeof base64 !== 'string') {
-      return res.status(400).json({ error: 'Falta la imagen' });
+      return res.status(400).json({ error: 'Falta el archivo' });
     }
 
     const mimeMatch = /^data:([^;]+);base64,(.+)$/.exec(base64);
@@ -34,9 +40,9 @@ router.post('/', async (req, res) => {
       : Buffer.from(base64, 'base64');
 
     const ext = MIME_EXT[mime.toLowerCase()];
-    if (!ext) return res.status(400).json({ error: 'Formato de imagen no soportado' });
-    if (data.length === 0) return res.status(400).json({ error: 'Imagen vacia' });
-    if (data.length > 20 * 1024 * 1024) return res.status(413).json({ error: 'Imagen demasiado grande' });
+    if (!ext) return res.status(400).json({ error: 'Formato no soportado' });
+    if (data.length === 0) return res.status(400).json({ error: 'Archivo vacio' });
+    if (data.length > 20 * 1024 * 1024) return res.status(413).json({ error: 'Archivo demasiado grande' });
 
     ensureUploadsDir();
     const name = `${randomUUID()}${ext}`;
