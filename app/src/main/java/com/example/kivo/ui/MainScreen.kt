@@ -59,6 +59,7 @@ import com.example.kivo.data.remote.MessageNotifier
 import com.example.kivo.data.remote.SocketManager
 import com.example.kivo.ui.components.KivoBadgedIconButton
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.example.kivo.ui.viewmodels.AuthViewModel
 import com.example.kivo.ui.state.AuthState
@@ -97,14 +98,32 @@ fun MainScreen(
             )
         }
         is AuthState.Error -> {
+            val isOnline by com.example.kivo.data.remote.NetworkMonitor.online.collectAsState()
+            LaunchedEffect(authState, isOnline) {
+                if (isOnline) {
+                    delay(3000)
+                    authViewModel.checkSession()
+                }
+            }
             Box(
                 modifier = Modifier.fillMaxSize().background(KivoBlack),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = if (isOnline) Icons.Default.CloudOff else Icons.Default.WifiOff,
+                        contentDescription = null,
+                        tint = KivoPink,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = (authState as AuthState.Error).message,
-                        color = KivoPink,
+                        text = if (isOnline) {
+                            "No pudimos conectar con el servidor de KIVO.\nEstamos reintentando solos..."
+                        } else {
+                            "No tienes conexion a internet.\nConectate y reintentaremos solos."
+                        },
+                        color = Color.White,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 32.dp)
                     )
@@ -113,7 +132,7 @@ fun MainScreen(
                         onClick = { authViewModel.checkSession() },
                         colors = ButtonDefaults.buttonColors(containerColor = KivoPurpleMain)
                     ) {
-                        Text("Reintentar", fontWeight = FontWeight.Bold)
+                        Text("Reintentar ahora", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -138,6 +157,7 @@ fun MainAppContent(
     val favoriteIds by musicViewModel.favoriteSongIds.collectAsState()
     val isMiniPlayerVisible by musicViewModel.isMiniPlayerVisible.collectAsState()
     val isShuffleEnabled by musicViewModel.isShuffleEnabled.collectAsState()
+    val isOnline by com.example.kivo.data.remote.NetworkMonitor.online.collectAsState()
     val unreadNotificationCount by NotificationStore.notifications
         .map { list -> list.count { !it.isRead } }
         .collectAsState(initial = 0)
@@ -321,7 +341,8 @@ fun MainAppContent(
                                 restoreState = true
                             }
                         }
-                    }
+                    },
+                    offline = !isOnline
                 )
             }
         },
@@ -557,33 +578,59 @@ fun KivoTopHeader(
     onAiClick: () -> Unit,
     onNotificationsClick: () -> Unit,
     unreadNotifications: Int,
-    onProfileClick: () -> Unit
+    onProfileClick: () -> Unit,
+    offline: Boolean = false
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(KivoBlack)
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "KIVO",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Black,
-            color = KivoPurpleMain,
-            modifier = Modifier.weight(1f),
-            letterSpacing = 1.sp
-        )
-        
-        KivoIconButton(icon = Icons.Default.SmartToy, onClick = onAiClick, tint = KivoPurpleMain)
-        KivoBadgedIconButton(
-            icon = Icons.Default.Notifications,
-            onClick = onNotificationsClick,
-            badgeCount = unreadNotifications
-        )
-        KivoIconButton(icon = Icons.Default.Search, onClick = { /* TODO */ })
-        KivoIconButton(icon = Icons.Default.Person, onClick = onProfileClick)
+    Column(modifier = Modifier.fillMaxWidth().background(KivoBlack)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(KivoBlack)
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "KIVO",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Black,
+                color = KivoPurpleMain,
+                modifier = Modifier.weight(1f),
+                letterSpacing = 1.sp
+            )
+            
+            KivoIconButton(icon = Icons.Default.SmartToy, onClick = onAiClick, tint = KivoPurpleMain)
+            KivoBadgedIconButton(
+                icon = Icons.Default.Notifications,
+                onClick = onNotificationsClick,
+                badgeCount = unreadNotifications
+            )
+            KivoIconButton(icon = Icons.Default.Search, onClick = { /* TODO */ })
+            KivoIconButton(icon = Icons.Default.Person, onClick = onProfileClick)
+        }
+        if (offline) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(KivoPink.copy(alpha = 0.12f))
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.WifiOff,
+                    contentDescription = null,
+                    tint = KivoPink,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Sin conexión: mostrando datos guardados, reintentando...",
+                    color = KivoPink,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
     }
 }
 

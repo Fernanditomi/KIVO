@@ -10,3 +10,6 @@
 .cxx
 local.properties
 .idea/
+app/build
+*.log
+/build_log.txt

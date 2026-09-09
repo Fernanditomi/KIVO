@@ -1,6 +1,5 @@
 package com.example.kivo.data.remote
 
-import com.example.kivo.BuildConfig
 import com.example.kivo.data.models.Message
 import com.google.gson.Gson
 import io.socket.client.IO
@@ -46,7 +45,7 @@ object SocketManager {
             .setTransports(arrayOf("websocket", "polling"))
             .build()
 
-        val newSocket = IO.socket(BuildConfig.KIVO_BASE_URL, options)
+        val newSocket = IO.socket(NetworkMonitor.preferredBase(), options)
         socket = newSocket
 
         newSocket.on(Socket.EVENT_CONNECT) {

@@ -23,6 +23,11 @@ android {
         )
         buildConfigField(
             "String",
+            "KIVO_BASE_URL_ALT",
+            "\"${providers.gradleProperty("KIVO_BASE_URL_ALT").orElse("").get()}\""
+        )
+        buildConfigField(
+            "String",
             "ONESIGNAL_APP_ID",
             "\"${providers.gradleProperty("ONESIGNAL_APP_ID").orElse("").get()}\""
         )
