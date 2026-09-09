@@ -15,10 +15,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -63,6 +66,7 @@ fun ChatScreen(
     conversationId: String,
     otherUserId: String,
     onBack: () -> Unit,
+    onCall: (String, String, String, String) -> Unit = { _, _, _, _ -> },
     viewModel: ChatViewModel = viewModel()
 ) {
     val messages by viewModel.messages.collectAsState()
@@ -147,6 +151,16 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        onCall(conversationId, otherUserId, otherUser?.displayName ?: "Usuario", "voice")
+                    }) {
+                        Icon(Icons.Filled.Call, contentDescription = "Llamada", tint = Color.White)
+                    }
+                    IconButton(onClick = {
+                        onCall(conversationId, otherUserId, otherUser?.displayName ?: "Usuario", "video")
+                    }) {
+                        Icon(Icons.Filled.Videocam, contentDescription = "Videollamada", tint = Color.White)
+                    }
                     Box {
                         IconButton(onClick = { menuOpen = true }) {
                             Icon(Icons.Filled.MoreVert, contentDescription = "Más opciones", tint = Color.White)
@@ -232,6 +246,11 @@ fun ChatScreen(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                         )
                     },
+                    onAudioRecord = {
+                        viewModel.toggleAudioRecording(conversationId, otherUserId)
+                    },
+                    isRecording = viewModel.isRecording.collectAsState().value,
+                    recordingAmplitude = viewModel.recordingAmplitude.collectAsState().value,
                     isSending = chatState is ChatState.SendingMessage
                 )
             }
@@ -644,6 +663,33 @@ fun MessageBubble(
                             .clickable { onImageClick?.invoke(message.text) },
                         contentScale = ContentScale.Crop
                     )
+                } else if (message.type == "audio") {
+                    Row(
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .widthIn(min = 160.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Filled.Mic,
+                            contentDescription = null,
+                            tint = KivoPurpleElectric,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Mensaje de voz",
+                                color = Color.White,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = "Toca para reproducir",
+                                color = KivoTextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
                 } else {
                     Text(
                         text = message.text,
@@ -670,6 +716,9 @@ fun ChatInputBar(
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
     onAttach: () -> Unit = {},
+    onAudioRecord: () -> Unit = {},
+    isRecording: Boolean = false,
+    recordingAmplitude: Float = 0f,
     isSending: Boolean = false
 ) {
     Surface(
@@ -685,7 +734,7 @@ fun ChatInputBar(
         ) {
             IconButton(
                 onClick = onAttach,
-                enabled = !isSending
+                enabled = !isSending && !isRecording
             ) {
                 Icon(
                     Icons.Filled.AddPhotoAlternate,
@@ -694,41 +743,92 @@ fun ChatInputBar(
                 )
             }
 
-            TextField(
-                value = text,
-                onValueChange = onTextChange,
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(24.dp)),
-                placeholder = { Text("Escribe un mensaje...", color = KivoTextSecondary) },
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = KivoSurface3,
-                    unfocusedContainerColor = KivoSurface3,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    cursorColor = KivoPurpleMain,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
-                ),
-                maxLines = 4,
-                enabled = !isSending
-            )
+            if (isRecording) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(KivoSurface3)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Filled.Mic,
+                        contentDescription = null,
+                        tint = KivoPink,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Grabando...",
+                        color = KivoPink,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Box(
+                        modifier = Modifier
+                            .width(60.dp)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(KivoPink.copy(alpha = 0.3f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(fraction = recordingAmplitude)
+                                .background(KivoPink)
+                        )
+                    }
+                }
+            } else {
+                TextField(
+                    value = text,
+                    onValueChange = onTextChange,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(24.dp)),
+                    placeholder = { Text("Escribe un mensaje...", color = KivoTextSecondary) },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = KivoSurface3,
+                        unfocusedContainerColor = KivoSurface3,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        cursorColor = KivoPurpleMain,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    maxLines = 4,
+                    enabled = !isSending
+                )
+            }
             
             Spacer(modifier = Modifier.width(8.dp))
             
-            IconButton(
-                onClick = onSend,
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(if (isSending) KivoSurface3 else KivoPurpleMain),
-                enabled = text.isNotBlank() && !isSending
-            ) {
-                if (isSending) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
-                } else {
+            if (isRecording) {
+                IconButton(
+                    onClick = onAudioRecord,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(KivoPink)
+                ) {
                     Icon(
                         Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Enviar",
+                        contentDescription = "Enviar audio",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            } else {
+                IconButton(
+                    onClick = onAudioRecord,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(if (text.isNotBlank()) KivoPurpleMain else KivoSurface3),
+                    enabled = !isSending
+                ) {
+                    Icon(
+                        Icons.Filled.Mic,
+                        contentDescription = "Grabar audio",
                         tint = Color.White,
                         modifier = Modifier.size(20.dp)
                     )

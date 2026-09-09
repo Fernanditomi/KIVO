@@ -364,6 +364,7 @@ fun MainAppContent(
                 Screen.QueCancionSalvas.route,
                 Screen.EditProfile.route,
                 Screen.ChatDetail.route,
+                Screen.Call.route,
                 Screen.UserSearch.route,
                 Screen.Notifications.route,
                 Screen.NotificationSettings.route
@@ -516,6 +517,31 @@ fun MainAppContent(
                 ChatScreen(
                     conversationId = conversationId,
                     otherUserId = otherUserId,
+                    onBack = { navController.popBackStack() },
+                    onCall = { convId, userId, userName, type ->
+                        navController.navigate("call/$convId/$userId/$userName/$type")
+                    }
+                )
+            }
+            composable(
+                Screen.Call.route,
+                arguments = listOf(
+                    androidx.navigation.navArgument("conversationId") { type = androidx.navigation.NavType.StringType },
+                    androidx.navigation.navArgument("otherUserId") { type = androidx.navigation.NavType.StringType },
+                    androidx.navigation.navArgument("otherUserName") { type = androidx.navigation.NavType.StringType },
+                    androidx.navigation.navArgument("callType") { type = androidx.navigation.NavType.StringType }
+                )
+            ) { backStackEntry ->
+                val conversationId = backStackEntry.arguments?.getString("conversationId") ?: ""
+                val otherUserId = backStackEntry.arguments?.getString("otherUserId") ?: ""
+                val otherUserName = backStackEntry.arguments?.getString("otherUserName") ?: "Usuario"
+                val callType = backStackEntry.arguments?.getString("callType") ?: "voice"
+                CallScreen(
+                    conversationId = conversationId,
+                    otherUserId = otherUserId,
+                    otherUserName = otherUserName,
+                    callType = callType,
+                    onEndCall = { navController.popBackStack() },
                     onBack = { navController.popBackStack() }
                 )
             }

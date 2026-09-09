@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Call
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Home : Screen("home", "Inicio", Icons.Default.Home)
@@ -38,6 +39,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object WhoSaidThat : Screen("who_said_that", "¿Quién dijo eso?", Icons.Default.QuestionAnswer)
     object QueCancionSalvas : Screen("que_cancion_salvas", "¿Qué canción salvas?", Icons.Default.CompareArrows)
     object ChatDetail : Screen("chat_detail/{conversationId}/{otherUserId}", "Chat", Icons.AutoMirrored.Filled.Chat)
+    object Call : Screen("call/{conversationId}/{otherUserId}/{otherUserName}/{callType}", "Llamada", Icons.Filled.Call)
     object UserSearch : Screen("user_search", "Buscar Personas", Icons.Default.Search)
     object Login : Screen("login", "Login", Icons.Default.Lock)
     object Register : Screen("register", "Registro", Icons.Default.Person)

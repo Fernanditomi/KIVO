@@ -97,4 +97,67 @@ object SocketManager {
     fun emitLocalMessage(message: Message) {
         _localMessages.tryEmit(message)
     }
+
+    fun emitCallOffer(callId: String, callerId: String, callerName: String, receiverId: String, type: CallType) {
+        val data = JSONObject().apply {
+            put("callId", callId)
+            put("callerId", callerId)
+            put("callerName", callerName)
+            put("receiverId", receiverId)
+            put("type", type.name.lowercase())
+        }
+        socket?.emit("call:offer", data)
+    }
+
+    fun emitCallAnswer(callId: String, callerId: String, receiverId: String) {
+        val data = JSONObject().apply {
+            put("callId", callId)
+            put("callerId", callerId)
+            put("receiverId", receiverId)
+        }
+        socket?.emit("call:answer", data)
+    }
+
+    fun emitCallReject(callId: String, callerId: String) {
+        val data = JSONObject().apply {
+            put("callId", callId)
+            put("callerId", callerId)
+        }
+        socket?.emit("call:reject", data)
+    }
+
+    fun emitCallEnd(callId: String, callerId: String) {
+        val data = JSONObject().apply {
+            put("callId", callId)
+            put("callerId", callerId)
+        }
+        socket?.emit("call:end", data)
+    }
+
+    fun emitIceCandidate(callId: String, targetId: String, candidate: String) {
+        val data = JSONObject().apply {
+            put("callId", callId)
+            put("targetId", targetId)
+            put("candidate", candidate)
+        }
+        socket?.emit("call:ice-candidate", data)
+    }
+
+    fun emitSdpOffer(callId: String, targetId: String, sdp: String) {
+        val data = JSONObject().apply {
+            put("callId", callId)
+            put("targetId", targetId)
+            put("sdp", sdp)
+        }
+        socket?.emit("call:sdp-offer", data)
+    }
+
+    fun emitSdpAnswer(callId: String, targetId: String, sdp: String) {
+        val data = JSONObject().apply {
+            put("callId", callId)
+            put("targetId", targetId)
+            put("sdp", sdp)
+        }
+        socket?.emit("call:sdp-answer", data)
+    }
 }

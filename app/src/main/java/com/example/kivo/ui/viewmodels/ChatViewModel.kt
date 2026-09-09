@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.kivo.data.models.Message
 import com.example.kivo.data.models.User
+import com.example.kivo.data.remote.AudioRecorder
 import com.example.kivo.data.repositories.AuthRepository
 import com.example.kivo.data.repositories.ChatRepository
 import com.example.kivo.ui.state.ChatState
@@ -12,6 +13,7 @@ import kotlinx.coroutines.launch
 
 class ChatViewModel : ViewModel() {
     private val myId = AuthRepository.getCurrentUserId() ?: ""
+    private val audioRecorder = AudioRecorder()
     
     private val _chatState = MutableStateFlow<ChatState>(ChatState.Idle)
     val chatState = _chatState.asStateFlow()
@@ -24,6 +26,15 @@ class ChatViewModel : ViewModel() {
 
     private val _inputText = MutableStateFlow("")
     val inputText = _inputText.asStateFlow()
+
+    private val _isRecording = MutableStateFlow(false)
+    val isRecording = _isRecording.asStateFlow()
+
+    private val _recordingAmplitude = MutableStateFlow(0f)
+    val recordingAmplitude = _recordingAmplitude.asStateFlow()
+
+    private var recordingConversationId: String = ""
+    private var recordingOtherUserId: String = ""
 
     fun initChat(conversationId: String, otherUserId: String) {
         viewModelScope.launch {
@@ -104,5 +115,49 @@ class ChatViewModel : ViewModel() {
             val ok = ChatRepository.deleteConversation(conversationId)
             onResult(ok)
         }
+    }
+
+    fun toggleAudioRecording(conversationId: String, otherUserId: String) {
+        if (_isRecording.value) {
+            val file = audioRecorder.stopRecording()
+            _isRecording.value = false
+            _recordingAmplitude.value = 0f
+
+            if (file != null && file.exists() && file.length() > 0) {
+                sendAudio(conversationId, otherUserId, file)
+            }
+        } else {
+            recordingConversationId = conversationId
+            recordingOtherUserId = otherUserId
+            audioRecorder.startRecording { amplitude ->
+                _recordingAmplitude.value = amplitude
+            }
+            _isRecording.value = true
+        }
+    }
+
+    private fun sendAudio(conversationId: String, otherUserId: String, audioFile: java.io.File) {
+        viewModelScope.launch {
+            _chatState.value = ChatState.SendingMessage
+            try {
+                val audioUrl = ChatRepository.uploadAudio(audioFile)
+                val message = Message(
+                    senderId = myId,
+                    receiverId = otherUserId,
+                    text = audioUrl,
+                    type = "audio",
+                    createdAt = System.currentTimeMillis()
+                )
+                ChatRepository.sendMessage(conversationId, message)
+                _chatState.value = ChatState.MessageSent
+            } catch (e: Exception) {
+                _chatState.value = ChatState.MessageFailed
+            }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        audioRecorder.release()
     }
 }

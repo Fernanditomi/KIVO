@@ -71,6 +71,15 @@ object ChatRepository {
         response.url
     }
 
+    suspend fun uploadAudio(audioFile: java.io.File): String = withContext(Dispatchers.IO) {
+        val bytes = audioFile.readBytes()
+        val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        val response = ApiClient.service.uploadImage(
+            UploadImageRequest(base64 = "data:audio/aac;base64,$base64")
+        )
+        response.url
+    }
+
     suspend fun downloadImageBytes(url: String): ByteArray = withContext(Dispatchers.IO) {
         val resolved = ApiClient.resolveUrl(url) ?: url
         val client = okhttp3.OkHttpClient()

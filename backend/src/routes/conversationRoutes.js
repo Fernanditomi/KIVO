@@ -103,15 +103,16 @@ router.post('/:id/messages', async (req, res) => {
 
     const { text, receiverId, type = 'text' } = req.body || {};
     const isImage = type === 'image';
-    if (!isImage && (!text || !String(text).trim())) return res.status(400).json({ error: 'El mensaje no puede estar vacio' });
+    const isAudio = type === 'audio';
+    if (!isImage && !isAudio && (!text || !String(text).trim())) return res.status(400).json({ error: 'El mensaje no puede estar vacio' });
     if (!receiverId || !conversation.participants.includes(receiverId)) {
       return res.status(400).json({ error: 'Destinatario invalido' });
     }
 
     const now = Date.now();
     const messageId = genId();
-    const storedText = isImage ? String(text || '').trim() : String(text).trim();
-    const displayText = isImage ? '📷 Foto' : storedText;
+    const storedText = (isImage || isAudio) ? String(text || '').trim() : String(text).trim();
+    const displayText = isImage ? '📷 Foto' : isAudio ? '🎤 Audio' : storedText;
     const { rows } = await pool.query(
       `INSERT INTO messages (message_id, conversation_id, sender_id, receiver_id, text, created_at, type, is_read, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, 'sent')
