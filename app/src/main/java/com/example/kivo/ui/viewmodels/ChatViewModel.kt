@@ -140,7 +140,9 @@ class ChatViewModel : ViewModel() {
         viewModelScope.launch {
             _chatState.value = ChatState.SendingMessage
             try {
+                android.util.Log.d("KIVO_AUDIO", "File size: ${audioFile.length()} bytes, path: ${audioFile.absolutePath}")
                 val audioUrl = ChatRepository.uploadAudio(audioFile)
+                android.util.Log.d("KIVO_AUDIO", "Upload OK: $audioUrl")
                 val message = Message(
                     senderId = myId,
                     receiverId = otherUserId,
@@ -149,8 +151,10 @@ class ChatViewModel : ViewModel() {
                     createdAt = System.currentTimeMillis()
                 )
                 ChatRepository.sendMessage(conversationId, message)
+                android.util.Log.d("KIVO_AUDIO", "Message sent OK")
                 _chatState.value = ChatState.MessageSent
             } catch (e: Exception) {
+                android.util.Log.e("KIVO_AUDIO", "Error: ${e.message}", e)
                 _chatState.value = ChatState.MessageFailed
             }
         }

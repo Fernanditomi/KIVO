@@ -68,7 +68,9 @@ class AudioRecorder {
             mediaRecorder?.stop()
             mediaRecorder?.release()
             mediaRecorder = null
-            outputFile
+            Thread.sleep(200)
+            val file = outputFile
+            if (file != null && file.exists() && file.length() > 100) file else null
         } catch (e: Exception) {
             mediaRecorder?.release()
             mediaRecorder = null
