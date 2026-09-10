@@ -24,6 +24,14 @@ class AuthViewModel : ViewModel() {
         viewModelScope.launch {
             Clerk.isInitialized.collect { initialized ->
                 if (!initialized) {
+                    if (AuthRepository.isUserLoggedIn()) {
+                        val cached = com.example.kivo.data.remote.SessionManager.getCachedUser()
+                        if (cached != null) {
+                            _authState.value = AuthState.Authenticated(cached)
+                            AuthRepository.connectRealtimeIfLoggedIn()
+                            return@collect
+                        }
+                    }
                     AuthRepository.clearLocalSession()
                     _authState.value = AuthState.Unauthenticated
                 }
@@ -35,8 +43,10 @@ class AuthViewModel : ViewModel() {
                 if (authComplete) {
                     completeClerkSignIn()
                 } else {
-                    AuthRepository.clearLocalSession()
-                    _authState.value = AuthState.Unauthenticated
+                    if (!AuthRepository.isUserLoggedIn()) {
+                        AuthRepository.clearLocalSession()
+                        _authState.value = AuthState.Unauthenticated
+                    }
                 }
             }
         }

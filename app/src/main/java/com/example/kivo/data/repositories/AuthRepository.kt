@@ -43,7 +43,7 @@ object AuthRepository {
             ?: return@withContext Result.failure(Exception("No hay sesión activa de Clerk"))
 
         var lastError: Throwable? = null
-        repeat(3) { attempt ->
+        repeat(6) { attempt ->
             try {
                 val me = ApiClient.service.getMe()
                 SessionManager.saveSession(token, me)
@@ -56,7 +56,7 @@ object AuthRepository {
                 if (!isTransientError(e)) {
                     return@withContext Result.failure(e)
                 }
-                if (attempt < 2) delay(1000L * (attempt + 1))
+                if (attempt < 5) delay(2000L * (attempt + 1))
             }
         }
 

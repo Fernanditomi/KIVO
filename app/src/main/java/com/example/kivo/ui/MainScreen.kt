@@ -99,9 +99,11 @@ fun MainScreen(
         }
         is AuthState.Error -> {
             val isOnline by com.example.kivo.data.remote.NetworkMonitor.online.collectAsState()
+            var retryCount by remember { mutableIntStateOf(0) }
             LaunchedEffect(authState, isOnline) {
-                if (isOnline) {
-                    delay(3000)
+                if (isOnline && retryCount < 5) {
+                    delay(5000L * (retryCount + 1))
+                    retryCount++
                     authViewModel.checkSession()
                 }
             }
