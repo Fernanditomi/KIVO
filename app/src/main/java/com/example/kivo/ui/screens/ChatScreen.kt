@@ -818,12 +818,27 @@ fun ChatInputBar(
                         modifier = Modifier.size(20.dp)
                     )
                 }
+            } else if (text.isNotBlank()) {
+                IconButton(
+                    onClick = onSend,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(KivoPurpleMain),
+                    enabled = !isSending
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Enviar mensaje",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             } else {
                 IconButton(
                     onClick = onAudioRecord,
                     modifier = Modifier
                         .clip(CircleShape)
-                        .background(if (text.isNotBlank()) KivoPurpleMain else KivoSurface3),
+                        .background(KivoSurface3),
                     enabled = !isSending
                 ) {
                     Icon(
