@@ -1,5 +1,6 @@
 package com.example.kivo.data.repositories
 
+import android.util.Log
 import com.example.kivo.data.models.User
 import com.example.kivo.data.remote.ApiClient
 import com.example.kivo.data.remote.ClerkToken
@@ -17,6 +18,8 @@ import retrofit2.HttpException
 import java.io.IOException
 
 object AuthRepository {
+
+    private const val TAG = "AuthRepository"
 
     fun getCurrentUserId(): String? = SessionManager.getCachedUser()?.userId
 
@@ -37,13 +40,14 @@ object AuthRepository {
      * Completa el inicio de sesion despues de que el flujo de Clerk termina:
      * trae el perfil del backend (/me, que aprovisiona el usuario en Postgres),
      * guarda la sesion local y conecta el socket.
+     * Si el backend no responde, crea un usuario local desde los datos de Clerk.
      */
     suspend fun completeClerkSignIn(): Result<User> = withContext(Dispatchers.IO) {
         val token = ClerkToken.fresh()
             ?: return@withContext Result.failure(Exception("No hay sesión activa de Clerk"))
 
         var lastError: Throwable? = null
-        repeat(6) { attempt ->
+        repeat(3) { attempt ->
             try {
                 val me = ApiClient.service.getMe()
                 SessionManager.saveSession(token, me)
@@ -53,10 +57,11 @@ object AuthRepository {
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 lastError = e
+                Log.w(TAG, "Intento ${attempt + 1}/3 falló: ${e.message}")
                 if (!isTransientError(e)) {
                     return@withContext Result.failure(e)
                 }
-                if (attempt < 5) delay(2000L * (attempt + 1))
+                if (attempt < 2) delay(3000L * (attempt + 1))
             }
         }
 
@@ -65,7 +70,40 @@ object AuthRepository {
             connectRealtimeIfLoggedIn()
             return@withContext Result.success(cached)
         }
+
+        val fallbackUser = buildUserFromClerk(token)
+        if (fallbackUser != null) {
+            SessionManager.saveSession(token, fallbackUser)
+            Log.w(TAG, "Backend no disponible, usando datos de Clerk: ${fallbackUser.userId}")
+            return@withContext Result.success(fallbackUser)
+        }
+
         Result.failure(lastError ?: Exception("No se pudo iniciar sesión"))
+    }
+
+    private fun buildUserFromClerk(token: String): User? {
+        return try {
+            val clerkUser = Clerk.activeUser ?: return null
+            val clerkId = clerkUser.id
+            val email = clerkUser.emailAddresses?.firstOrNull()?.emailAddress ?: ""
+            val username = clerkUser.username ?: email.substringBefore("@")
+            val firstName = clerkUser.firstName ?: ""
+            val lastName = clerkUser.lastName ?: ""
+            val displayName = "$firstName $lastName".trim().ifEmpty { username }
+            val photoUrl = clerkUser.imageUrl?.toString()
+            User(
+                userId = clerkId,
+                username = username.lowercase(),
+                usernameLowercase = username.lowercase(),
+                displayName = displayName,
+                email = email,
+                photoUrl = photoUrl,
+                bio = ""
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "No se pudo crear usuario desde Clerk: ${e.message}")
+            null
+        }
     }
 
     private fun isTransientError(e: Exception): Boolean {
@@ -101,7 +139,8 @@ object AuthRepository {
             SessionManager.updateCachedUser(updated)
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            SessionManager.updateCachedUser(user)
+            Result.success(Unit)
         }
     }
 
