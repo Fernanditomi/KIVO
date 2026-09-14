@@ -11,6 +11,7 @@ import userRoutes from './routes/userRoutes.js';
 import conversationRoutes from './routes/conversationRoutes.js';
 import deviceRoutes from './routes/deviceRoutes.js';
 import uploadRoutes, { ensureUploadsDir } from './routes/uploadRoutes.js';
+import youtubeRoutes from './routes/youtubeRoutes.js';
 
 const app = express();
 app.use(cors());
@@ -31,6 +32,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/devices', deviceRoutes);
 app.use('/api/uploads', uploadRoutes);
+app.use('/api/youtube', youtubeRoutes);
 
 const server = http.createServer(app);
 const io = initSocket(server);
