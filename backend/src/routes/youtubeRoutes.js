@@ -2,6 +2,7 @@ import { Router } from 'express';
 import https from 'https';
 import http from 'http';
 import { URL } from 'url';
+import ytdl from '@distube/ytdl-core';
 
 const router = Router();
 
@@ -33,174 +34,41 @@ function httpsGet(url, headers = {}) {
   });
 }
 
-function httpsPost(url, body, headers) {
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const bodyStr = JSON.stringify(body);
-    const req = https.request({
-      hostname: parsed.hostname,
-      path: parsed.pathname + parsed.search,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(bodyStr),
-        ...headers
-      }
-    }, res => {
-      let d = '';
-      res.on('data', c => d += c);
-      res.on('end', () => resolve({ status: res.statusCode, body: d }));
-    });
-    req.on('error', reject);
-    req.write(bodyStr);
-    req.end();
-  });
-}
-
-async function getPlayerData(videoId) {
-  // Method 1: Try watch page scraping (works for most videos)
-  try {
-    console.log(`[youtube] Trying watch page scraping for ${videoId}`);
-    const resp = await httpsGet(`https://www.youtube.com/watch?v=${videoId}`);
-    const html = resp.body;
-
-    const marker = 'var ytInitialPlayerResponse = ';
-    const startIdx = html.indexOf(marker);
-    if (startIdx !== -1) {
-      const jsonStart = startIdx + marker.length;
-      const jsonEnd = html.indexOf('};', jsonStart);
-      if (jsonEnd !== -1) {
-        const json = JSON.parse(html.substring(jsonStart, jsonEnd + 1));
-        const status = json.playabilityStatus?.status;
-        console.log(`[youtube] Watch page status: ${status}`);
-        if (status === 'OK' && json.streamingData) return json.streamingData;
-      }
-    }
-  } catch (e) {
-    console.error('[youtube] Watch page error:', e.message);
-  }
-
-  // Method 2: Try ANDROID_VR InnerTube
-  try {
-    console.log(`[youtube] Trying ANDROID_VR InnerTube for ${videoId}`);
-    const resp = await httpsPost(
-      'https://www.youtube.com/youtubei/v1/player?key=AIzaSyDCU8hByM-4DrUqRUYnGn-3llEO78bcxq8&prettyPrint=false',
-      {
-        videoId,
-        context: { client: { clientName: 'ANDROID_VR', clientVersion: '1.60.19', androidSdkVersion: 34, hl: 'es', gl: 'US' } },
-        contentCheckOk: true, racyCheckOk: true
-      },
-      { 'User-Agent': 'com.google.android.apps.youtube.vr/1.60.19 (Linux; U; Android 14) gzip' }
-    );
-    const json = JSON.parse(resp.body);
-    console.log(`[youtube] ANDROID_VR status: ${json.playabilityStatus?.status}`);
-    if (json.playabilityStatus?.status === 'OK' && json.streamingData) return json.streamingData;
-  } catch (e) {
-    console.error('[youtube] ANDROID_VR error:', e.message);
-  }
-
-  // Method 3: Try WEB InnerTube with visitor data
-  try {
-    console.log(`[youtube] Trying WEB InnerTube for ${videoId}`);
-    const home = await httpsGet('https://www.youtube.com/');
-    const vdMatch = home.body.match(/"VISITOR_DATA":"([^"]+)"/);
-    const cookies = (home.headers['set-cookie'] || []).map(c => c.split(';')[0]).join('; ');
-    const allCookies = (cookies ? cookies + '; ' : '') + 'CONSENT=YES+cb.20210328-17-p0.en+FX+999';
-
-    const resp = await httpsPost(
-      'https://www.youtube.com/youtubei/v1/player?prettyPrint=false',
-      {
-        videoId,
-        context: { client: { clientName: 'WEB', clientVersion: '2.20241126.01.00', hl: 'es', gl: 'US', visitorData: vdMatch ? vdMatch[1] : '' } },
-        contentCheckOk: true, racyCheckOk: true
-      },
-      {
-        'Origin': 'https://www.youtube.com',
-        'Referer': `https://www.youtube.com/watch?v=${videoId}`,
-        'Cookie': allCookies,
-        'X-Youtube-Client-Name': '1',
-        'X-Youtube-Client-Version': '2.20241126.01.00'
-      }
-    );
-    const json = JSON.parse(resp.body);
-    console.log(`[youtube] WEB status: ${json.playabilityStatus?.status}`);
-    if (json.playabilityStatus?.status === 'OK' && json.streamingData) return json.streamingData;
-  } catch (e) {
-    console.error('[youtube] WEB error:', e.message);
-  }
-
-  return null;
-}
-
-// Stream endpoint: proxies audio to the client
+// Stream endpoint using ytdl-core
 router.get('/stream', async (req, res) => {
   const videoId = req.query.videoId;
   if (!videoId) return res.status(400).json({ error: 'Missing videoId' });
 
   try {
-    console.log(`[youtube/stream] Getting stream for ${videoId}`);
+    console.log(`[youtube/stream] Getting stream for ${videoId} via ytdl-core`);
 
-    const sd = await getPlayerData(videoId);
-    if (!sd) return res.status(503).json({ error: 'Could not get streaming data' });
+    const info = await ytdl.getInfo(videoId);
+    console.log(`[youtube/stream] Got info: ${info.videoDetails.title}`);
 
-    // Find audio URL
-    let audioUrl = null;
-    const af = sd.adaptiveFormats || [];
-    for (const fmt of af) {
-      if ((fmt.mimeType || '').includes('audio')) {
-        if (fmt.url) { audioUrl = fmt.url; break; }
-        if (fmt.signatureCipher) {
-          console.log(`[youtube/stream] Audio format has signatureCipher (not decryptable)`);
-        }
-      }
+    const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+    if (audioFormats.length === 0) {
+      return res.status(404).json({ error: 'No audio formats found' });
     }
-    if (!audioUrl && sd.formats?.[0]?.url) audioUrl = sd.formats[0].url;
-    if (!audioUrl && sd.serverAbrStreamingUrl) audioUrl = sd.serverAbrStreamingUrl;
 
-    if (!audioUrl) return res.status(404).json({ error: 'No audio URL found' });
+    const format = audioFormats[0];
+    console.log(`[youtube/stream] Using format: ${format.mimeType} bitrate=${format.averageBitrate}`);
 
-    console.log(`[youtube/stream] Proxying audio stream...`);
+    const stream = ytdl(videoId, { filter: 'audioonly', quality: 'highestaudio' });
 
-    // Proxy with follow redirects
-    const doProxy = (url, depth = 0) => {
-      if (depth > 5) return res.status(502).json({ error: 'Too many redirects' });
-      const parsed = new URL(url);
-      const mod = parsed.protocol === 'https:' ? https : http;
-      const proxyReq = mod.get({
-        hostname: parsed.hostname,
-        path: parsed.pathname + parsed.search,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Referer': 'https://www.youtube.com/',
-          'Origin': 'https://www.youtube.com'
-        }
-      }, proxyRes => {
-        if (proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
-          const loc = proxyRes.headers.location.startsWith('http')
-            ? proxyRes.headers.location
-            : `https://${parsed.hostname}${proxyRes.headers.location}`;
-          return doProxy(loc, depth + 1);
-        }
-        console.log(`[youtube/stream] Upstream: ${proxyRes.statusCode} CT: ${proxyRes.headers['content-type']}`);
-        if (!res.headersSent) {
-          res.writeHead(proxyRes.statusCode, {
-            'Content-Type': proxyRes.headers['content-type'] || 'audio/mp4',
-            'Access-Control-Allow-Origin': '*',
-            'Content-Length': proxyRes.headers['content-length']
-          });
-        }
-        proxyRes.pipe(res);
-      });
-      proxyReq.on('error', (e) => {
-        console.error('[youtube/stream] Proxy error:', e.message);
-        if (!res.headersSent) res.status(502).json({ error: 'Proxy error' });
-      });
-    };
+    res.writeHead(200, {
+      'Content-Type': format.mimeType || 'audio/webm',
+      'Access-Control-Allow-Origin': '*'
+    });
 
-    doProxy(audioUrl);
+    stream.pipe(res);
+
+    stream.on('error', (e) => {
+      console.error('[youtube/stream] Stream error:', e.message);
+      if (!res.headersSent) res.status(500).json({ error: 'Stream error' });
+    });
 
   } catch (e) {
-    console.error('[youtube/stream]', e.message);
+    console.error('[youtube/stream] Error:', e.message);
     if (!res.headersSent) res.status(500).json({ error: e.message });
   }
 });
