@@ -45,6 +45,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object Register : Screen("register", "Registro", Icons.Default.Person)
     object Notifications : Screen("notifications", "Notificaciones", Icons.Default.Notifications)
     object NotificationSettings : Screen("notification_settings", "Configuración de notificaciones", Icons.Default.Settings)
+    object SpotifySearch : Screen("spotify_search", "Buscar en Spotify", Icons.Default.MusicNote)
 }
 
 val bottomNavItems = listOf(

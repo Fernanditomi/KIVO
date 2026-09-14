@@ -108,7 +108,6 @@ class MusicPlayerManager(context: Context) {
 
     fun play(song: Song) {
         mediaController?.let { controller ->
-            // Find index in current queue or update queue
             var index = -1
             for (i in 0 until controller.mediaItemCount) {
                 if (controller.getMediaItemAt(i).mediaId == song.id) {
@@ -121,7 +120,6 @@ class MusicPlayerManager(context: Context) {
                 controller.seekTo(index, 0L)
                 controller.play()
             } else {
-                // If not in queue, just play it as a single item for now (should not happen with full list)
                 val mediaItem = MediaItem.Builder()
                     .setUri(song.audioUrl)
                     .setMediaId(song.id)
@@ -137,6 +135,24 @@ class MusicPlayerManager(context: Context) {
                 controller.prepare()
                 controller.play()
             }
+        }
+    }
+
+    fun playFromUrl(url: String, id: String = "url_${url.hashCode()}", title: String = "", artist: String = "") {
+        mediaController?.let { controller ->
+            val mediaItem = MediaItem.Builder()
+                .setUri(url)
+                .setMediaId(id)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(title.ifEmpty { "Spotify" })
+                        .setArtist(artist)
+                        .build()
+                )
+                .build()
+            controller.setMediaItem(mediaItem)
+            controller.prepare()
+            controller.play()
         }
     }
 

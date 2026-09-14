@@ -445,7 +445,13 @@ fun MainAppContent(
                 ) 
             }
             composable(Screen.Music.route) { 
-                MusicScreen(viewModel = musicViewModel) 
+                MusicScreen(
+                    viewModel = musicViewModel,
+                    onSpotifyClick = { navController.navigate(Screen.SpotifySearch.route) }
+                ) 
+            }
+            composable(Screen.SpotifySearch.route) {
+                SpotifySearchScreen(viewModel = musicViewModel)
             }
             composable(Screen.Profile.route) { 
                 ProfileScreen(

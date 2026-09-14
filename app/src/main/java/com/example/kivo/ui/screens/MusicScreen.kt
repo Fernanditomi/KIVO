@@ -28,11 +28,15 @@ import com.example.kivo.ui.viewmodels.MusicViewModel
 import com.example.kivo.ui.components.KivoSectionTitle
 
 @Composable
-fun MusicScreen(viewModel: MusicViewModel) {
+fun MusicScreen(
+    viewModel: MusicViewModel,
+    onSpotifyClick: () -> Unit = {}
+) {
     val currentSong by viewModel.currentSong.collectAsState()
     val favoriteIds by viewModel.favoriteSongIds.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val filteredSongs by viewModel.filteredSongs.collectAsState()
+    val spotifyConnected by viewModel.spotifyConnected.collectAsState()
     
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -57,6 +61,35 @@ fun MusicScreen(viewModel: MusicViewModel) {
                 query = searchQuery,
                 onQueryChange = { viewModel.updateSearchQuery(it) }
             )
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            // Spotify Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onSpotifyClick,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (spotifyConnected) Color(0xFF1DB954) else KivoSurface2
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Icon(
+                        Icons.Default.MusicNote,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        if (spotifyConnected) "Spotify Conectado" else "Buscar en Spotify",
+                        fontSize = 12.sp
+                    )
+                }
+            }
             
             Spacer(modifier = Modifier.height(24.dp))
             
