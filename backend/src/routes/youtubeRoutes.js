@@ -5,33 +5,7 @@ import { URL } from 'url';
 
 const router = Router();
 
-function fetchPage(fetchUrl, headers = {}, method = 'GET') {
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(fetchUrl);
-    const mod = parsed.protocol === 'https:' ? https : http;
-    const options = {
-      hostname: parsed.hostname,
-      path: parsed.pathname + parsed.search,
-      method,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'es;q=0.9,en;q=0.8',
-        ...headers
-      }
-    };
-    const req = mod.request(options, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return fetchPage(res.headers.location, headers, method).then(resolve, reject);
-      }
-      resolve(res);
-    });
-    req.on('error', reject);
-    if (method === 'POST') req.write(headers._body || '');
-    req.end();
-  });
-}
-
-function fetchBody(url, headers) {
+function httpsGet(url, headers = {}) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const mod = parsed.protocol === 'https:' ? https : http;
@@ -39,59 +13,159 @@ function fetchBody(url, headers) {
       hostname: parsed.hostname,
       path: parsed.pathname + parsed.search,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept-Language': 'es;q=0.9,en;q=0.8',
+        'Cookie': 'CONSENT=YES+cb.20210328-17-p0.en+FX+999',
         ...headers
       }
     };
     mod.get(options, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        const loc = res.headers.location.startsWith('http')
+          ? res.headers.location
+          : `https://${parsed.hostname}${res.headers.location}`;
+        return httpsGet(loc, headers).then(resolve, reject);
+      }
       let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => resolve(data));
+      res.on('data', c => data += c);
+      res.on('end', () => resolve({ status: res.statusCode, body: data, headers: res.headers }));
     }).on('error', reject);
   });
 }
 
-function innertubePlayer(videoId) {
+function httpsPost(url, body, headers = {}) {
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({
-      videoId,
-      context: {
-        client: {
-          clientName: 'ANDROID_VR',
-          clientVersion: '1.60.19',
-          androidSdkVersion: 34,
-          hl: 'es',
-          gl: 'US'
-        }
-      },
-      contentCheckOk: true,
-      racyCheckOk: true
-    });
-
+    const parsed = new URL(url);
+    const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
     const req = https.request({
-      hostname: 'www.youtube.com',
-      path: '/youtubei/v1/player?key=AIzaSyDCU8hByM-4DrUqRUYnGn-3llEO78bcxq8&prettyPrint=false',
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'com.google.android.apps.youtube.vr/1.60.19 (Linux; U; Android 14) gzip',
-        'Content-Length': Buffer.byteLength(body)
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Content-Length': Buffer.byteLength(bodyStr),
+        ...headers
       }
     }, res => {
       let data = '';
       res.on('data', c => data += c);
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
-        catch (e) { reject(e); }
-      });
+      res.on('end', () => resolve({ status: res.statusCode, body: data }));
     });
     req.on('error', reject);
-    req.write(body);
+    req.write(bodyStr);
     req.end();
   });
 }
 
-// Proxy stream endpoint: downloads audio and pipes it to the client
+async function getVisitorData() {
+  try {
+    const resp = await httpsGet('https://www.youtube.com/');
+    const vdMatch = resp.body.match(/"VISITOR_DATA":"([^"]+)"/);
+    const cookies = (resp.headers['set-cookie'] || []).map(c => c.split(';')[0]).join('; ');
+    return { visitorData: vdMatch ? vdMatch[1] : '', cookies };
+  } catch (e) {
+    console.error('[youtube] getVisitorData error:', e.message);
+    return { visitorData: '', cookies: '' };
+  }
+}
+
+async function innertubePlayerWEB(videoId) {
+  const { visitorData, cookies } = await getVisitorData();
+  console.log(`[youtube] Got visitor data: ${!!visitorData}`);
+
+  const body = {
+    videoId,
+    context: {
+      client: {
+        clientName: 'WEB',
+        clientVersion: '2.20241126.01.00',
+        hl: 'es',
+        gl: 'US',
+        visitorData
+      }
+    },
+    contentCheckOk: true,
+    racyCheckOk: true
+  };
+
+  const allCookies = (cookies ? cookies + '; ' : '') + 'CONSENT=YES+cb.20210328-17-p0.en+FX+999; SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjQwNjEwLjA3X3AxGgJlbiACGgYIgJnaRQY';
+
+  const resp = await httpsPost(
+    'https://www.youtube.com/youtubei/v1/player?prettyPrint=false',
+    body,
+    {
+      'Origin': 'https://www.youtube.com',
+      'Referer': `https://www.youtube.com/watch?v=${videoId}`,
+      'Cookie': allCookies,
+      'X-Youtube-Client-Name': '1',
+      'X-Youtube-Client-Version': '2.20241126.01.00'
+    }
+  );
+
+  return JSON.parse(resp.body);
+}
+
+async function innertubePlayerANDROID_VR(videoId) {
+  const body = {
+    videoId,
+    context: {
+      client: {
+        clientName: 'ANDROID_VR',
+        clientVersion: '1.60.19',
+        androidSdkVersion: 34,
+        hl: 'es',
+        gl: 'US'
+      }
+    },
+    contentCheckOk: true,
+    racyCheckOk: true
+  };
+
+  const resp = await httpsPost(
+    'https://www.youtube.com/youtubei/v1/player?key=AIzaSyDCU8hByM-4DrUqRUYnGn-3llEO78bcxq8&prettyPrint=false',
+    body,
+    { 'User-Agent': 'com.google.android.apps.youtube.vr/1.60.19 (Linux; U; Android 14) gzip' }
+  );
+
+  return JSON.parse(resp.body);
+}
+
+async function getAudioUrl(videoId) {
+  // Try ANDROID_VR first (works from some IPs)
+  let data = await innertubePlayerANDROID_VR(videoId);
+  let status = data.playabilityStatus?.status;
+  console.log(`[youtube] ANDROID_VR status: ${status}`);
+
+  if (status === 'OK' && data.streamingData) {
+    const af = data.streamingData.adaptiveFormats || [];
+    for (const fmt of af) {
+      if ((fmt.mimeType || '').includes('audio') && fmt.url) return fmt.url;
+    }
+    const fmts = data.streamingData.formats || [];
+    if (fmts[0]?.url) return fmts[0].url;
+    if (data.streamingData.serverAbrStreamingUrl) return data.streamingData.serverAbrStreamingUrl;
+  }
+
+  // Fallback: WEB client with visitor data
+  data = await innertubePlayerWEB(videoId);
+  status = data.playabilityStatus?.status;
+  console.log(`[youtube] WEB status: ${status}`);
+
+  if (status === 'OK' && data.streamingData) {
+    const af = data.streamingData.adaptiveFormats || [];
+    for (const fmt of af) {
+      if ((fmt.mimeType || '').includes('audio') && fmt.url) return fmt.url;
+    }
+    const fmts = data.streamingData.formats || [];
+    if (fmts[0]?.url) return fmts[0].url;
+    if (data.streamingData.serverAbrStreamingUrl) return data.streamingData.serverAbrStreamingUrl;
+  }
+
+  return null;
+}
+
+// Stream endpoint: proxies audio to the client
 router.get('/stream', async (req, res) => {
   const videoId = req.query.videoId;
   if (!videoId) return res.status(400).json({ error: 'Missing videoId' });
@@ -99,37 +173,12 @@ router.get('/stream', async (req, res) => {
   try {
     console.log(`[youtube/stream] Getting stream for ${videoId}`);
 
-    const playerData = await innertubePlayer(videoId);
-    const status = playerData.playabilityStatus?.status;
-    console.log(`[youtube/stream] Playability: ${status}`);
-
-    if (status !== 'OK') {
-      return res.status(503).json({ error: playerData.playabilityStatus?.reason || 'Unplayable' });
-    }
-
-    const sd = playerData.streamingData;
-    if (!sd) return res.status(404).json({ error: 'No streaming data' });
-
-    // Find audio URL
-    let audioUrl = null;
-
-    const af = sd.adaptiveFormats || [];
-    for (const fmt of af) {
-      if ((fmt.mimeType || '').includes('audio') && fmt.url) {
-        audioUrl = fmt.url;
-        break;
-      }
-    }
-
-    if (!audioUrl && sd.formats?.length > 0 && sd.formats[0].url) {
-      audioUrl = sd.formats[0].url;
-    }
-
+    const audioUrl = await getAudioUrl(videoId);
     if (!audioUrl) {
-      return res.status(404).json({ error: 'No audio URL found' });
+      return res.status(503).json({ error: 'Could not get audio URL' });
     }
 
-    console.log(`[youtube/stream] Proxying audio stream...`);
+    console.log(`[youtube/stream] Got audio URL, proxying...`);
 
     // Proxy the audio stream
     const parsed = new URL(audioUrl);
@@ -138,42 +187,50 @@ router.get('/stream', async (req, res) => {
       path: parsed.pathname + parsed.search,
       method: 'GET',
       headers: {
-        'User-Agent': 'com.google.android.apps.youtube.vr/1.60.19 (Linux; U; Android 14) gzip',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': 'https://www.youtube.com/',
         'Origin': 'https://www.youtube.com'
       }
     }, proxyRes => {
-      console.log(`[youtube/stream] Upstream response: ${proxyRes.statusCode}`);
+      console.log(`[youtube/stream] Upstream: ${proxyRes.statusCode}`);
+
       if (proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
-        // Follow redirect
         const loc = proxyRes.headers.location;
         const parsed2 = new URL(loc);
-        const redirectReq = https.request({
+        const redirReq = https.request({
           hostname: parsed2.hostname,
           path: parsed2.pathname + parsed2.search,
           method: 'GET',
           headers: {
-            'User-Agent': 'com.google.android.apps.youtube.vr/1.60.19 (Linux; U; Android 14) gzip',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Referer': 'https://www.youtube.com/',
             'Origin': 'https://www.youtube.com'
           }
-        }, redirectRes => {
-          res.writeHead(redirectRes.statusCode, {
-            'Content-Type': redirectRes.headers['content-type'] || 'audio/mp4',
-            'Access-Control-Allow-Origin': '*',
-            'Content-Length': redirectRes.headers['content-length']
-          });
-          redirectRes.pipe(res);
+        }, redirRes => {
+          if (!res.headersSent) {
+            res.writeHead(redirRes.statusCode, {
+              'Content-Type': redirRes.headers['content-type'] || 'audio/mp4',
+              'Access-Control-Allow-Origin': '*',
+              'Content-Length': redirRes.headers['content-length']
+            });
+          }
+          redirRes.pipe(res);
         });
-        redirectReq.end();
+        redirReq.on('error', (e) => {
+          console.error('[youtube/stream] Redirect proxy error:', e.message);
+          if (!res.headersSent) res.status(502).end();
+        });
+        redirReq.end();
         return;
       }
 
-      res.writeHead(proxyRes.statusCode, {
-        'Content-Type': proxyRes.headers['content-type'] || 'audio/mp4',
-        'Access-Control-Allow-Origin': '*',
-        'Content-Length': proxyRes.headers['content-length']
-      });
+      if (!res.headersSent) {
+        res.writeHead(proxyRes.statusCode, {
+          'Content-Type': proxyRes.headers['content-type'] || 'audio/mp4',
+          'Access-Control-Allow-Origin': '*',
+          'Content-Length': proxyRes.headers['content-length']
+        });
+      }
       proxyRes.pipe(res);
     });
 
@@ -197,7 +254,8 @@ router.get('/search', async (req, res) => {
 
   try {
     const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ%3D%3D`;
-    const html = await fetchBody(searchUrl);
+    const resp = await httpsGet(searchUrl);
+    const html = resp.body;
     const results = [];
     const dataStart = html.indexOf('var ytInitialData = ');
     if (dataStart !== -1) {
