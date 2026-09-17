@@ -1,12 +1,13 @@
 package com.example.kivo.data.remote
 
-import com.google.gson.annotations.SerializedName
+import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 data class YouTubeResult(
@@ -21,114 +22,151 @@ class YouTubeService {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .build()
-
-    private val instances = listOf(
-        "https://vid.puffyan.us",
-        "https://invidious.fdn.fr",
-        "https://inv.nadeko.net",
-        "https://invidious.privacyredirect.com",
-        "https://yt.artemislena.eu"
-    )
-
-    private var currentInstance = instances[0]
 
     suspend fun search(query: String): List<YouTubeResult> = withContext(Dispatchers.IO) {
         try {
-            val url = "$currentInstance/api/v1/search?q=${query.replace(" ", "+")}&type=video&sort_by=relevance"
+            val encodedQuery = URLEncoder.encode(query, "UTF-8")
+            val url = "https://www.youtube.com/results?search_query=$encodedQuery&sp=EgIQAQ%3D%3D"
             val request = Request.Builder()
                 .url(url)
-                .addHeader("User-Agent", "Kivo/1.0")
+                .addHeader(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+                .addHeader("Accept-Language", "es;q=0.9,en;q=0.8")
                 .get()
                 .build()
 
             val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string() ?: return@withContext emptyList()
-                val jsonArray = JSONArray(body)
-                val results = mutableListOf<YouTubeResult>()
+            if (!response.isSuccessful) {
+                Log.e("YouTubeService", "HTTP ${response.code}")
+                return@withContext emptyList()
+            }
 
-                for (i in 0 until minOf(jsonArray.length(), 10)) {
-                    val obj = jsonArray.getJSONObject(i)
-                    if (obj.optString("type") == "video") {
-                        results.add(
-                            YouTubeResult(
-                                videoId = obj.optString("videoId", ""),
-                                title = obj.optString("title", ""),
-                                channelName = obj.optString("author", ""),
-                                thumbnailUrl = "$currentInstance${obj.optString("videoThumbnails", "")}".let {
-                                    val thumbs = obj.optJSONArray("videoThumbnails")
-                                    if (thumbs != null && thumbs.length() > 0) {
-                                        val maxRes = thumbs.getJSONObject(thumbs.length() - 1)
-                                        maxRes.optString("url", "")
-                                    } else ""
-                                },
-                                lengthSeconds = obj.optInt("lengthSeconds", 0)
-                            )
-                        )
-                    }
-                }
-                results
-            } else {
-                tryNextInstance()
-                search(query)
-            }
+            val html = response.body?.string() ?: return@withContext emptyList()
+            parseSearchResults(html)
         } catch (e: Exception) {
-            tryNextInstance()
-            try {
-                search(query)
-            } catch (e2: Exception) {
-                emptyList()
-            }
+            Log.e("YouTubeService", "Search error: ${e.message}", e)
+            emptyList()
         }
     }
 
-    suspend fun getStreamUrl(videoId: String): String? = withContext(Dispatchers.IO) {
+    private fun parseSearchResults(html: String): List<YouTubeResult> {
+        val results = mutableListOf<YouTubeResult>()
         try {
-            val url = "$currentInstance/api/v1/videos/$videoId"
+            val dataStart = html.indexOf("var ytInitialData = ")
+            if (dataStart == -1) return emptyList()
+            val jsonStart = dataStart + "var ytInitialData = ".length
+            val jsonEnd = html.indexOf(";</script>", jsonStart)
+            if (jsonEnd == -1) return emptyList()
+
+            val json = JSONObject(html.substring(jsonStart, jsonEnd))
+            val contents = json
+                .optJSONObject("contents")
+                ?.optJSONObject("twoColumnSearchResultsRenderer")
+                ?.optJSONObject("primaryContents")
+                ?.optJSONObject("sectionListRenderer")
+                ?.optJSONArray("contents") ?: return emptyList()
+
+            for (i in 0 until contents.length()) {
+                val section = contents.optJSONObject(i) ?: continue
+                val items = section
+                    .optJSONObject("itemSectionRenderer")
+                    ?.optJSONArray("contents") ?: continue
+
+                for (j in 0 until items.length()) {
+                    val item = items.optJSONObject(j) ?: continue
+                    val vr = item.optJSONObject("videoRenderer") ?: continue
+
+                    val videoId = vr.optString("videoId", "")
+                    if (videoId.isEmpty()) continue
+
+                    val title = vr
+                        .optJSONObject("title")
+                        ?.optJSONArray("runs")
+                        ?.optJSONObject(0)
+                        ?.optString("text", "") ?: ""
+
+                    val channelName = vr
+                        .optJSONObject("ownerText")
+                        ?.optJSONArray("runs")
+                        ?.optJSONObject(0)
+                        ?.optString("text", "") ?: ""
+
+                    val thumbnailArray = vr
+                        .optJSONObject("thumbnail")
+                        ?.optJSONArray("thumbnails")
+                    val thumbnailUrl = if (thumbnailArray != null && thumbnailArray.length() > 0) {
+                        thumbnailArray.getJSONObject(thumbnailArray.length() - 1)
+                            .optString("url", "")
+                    } else ""
+
+                    val lengthText = vr
+                        .optJSONObject("lengthText")
+                        ?.optString("simpleText", "") ?: "0:00"
+                    val lengthSeconds = parseDuration(lengthText)
+
+                    results.add(
+                        YouTubeResult(
+                            videoId = videoId,
+                            title = title,
+                            channelName = channelName,
+                            thumbnailUrl = thumbnailUrl,
+                            lengthSeconds = lengthSeconds
+                        )
+                    )
+
+                    if (results.size >= 15) break
+                }
+                if (results.size >= 15) break
+            }
+        } catch (e: Exception) {
+            Log.e("YouTubeService", "Parse error: ${e.message}", e)
+        }
+
+        Log.d("YouTubeService", "Parsed ${results.size} results")
+        return results
+    }
+
+    private fun parseDuration(text: String): Int {
+        val parts = text.split(":")
+        return try {
+            when (parts.size) {
+                3 -> parts[0].toInt() * 3600 + parts[1].toInt() * 60 + parts[2].toInt()
+                2 -> parts[0].toInt() * 60 + parts[1].toInt()
+                1 -> parts[0].toInt()
+                else -> 0
+            }
+        } catch (e: Exception) { 0 }
+    }
+
+    suspend fun getStreamUrl(videoId: String, context: Context): String? = withContext(Dispatchers.IO) {
+        try {
+            Log.d("YouTubeService", "getStreamUrl via backend proxy for: $videoId")
+
+            val proxyUrl = "https://kivo-backend-fsvk.onrender.com/api/youtube/stream?videoId=$videoId"
             val request = Request.Builder()
-                .url(url)
-                .addHeader("User-Agent", "Kivo/1.0")
+                .url(proxyUrl)
+                .addHeader("Accept", "audio/*")
                 .get()
                 .build()
 
             val response = client.newCall(request).execute()
+            Log.d("YouTubeService", "Proxy response: ${response.code}")
+
             if (response.isSuccessful) {
-                val body = response.body?.string() ?: return@withContext null
-                val json = JSONObject(body)
-
-                val adaptiveFormats = json.optJSONArray("adaptiveFormats")
-                if (adaptiveFormats != null) {
-                    for (i in 0 until adaptiveFormats.length()) {
-                        val format = adaptiveFormats.getJSONObject(i)
-                        val type = format.optString("type", "")
-                        if (type.contains("audio") && type.contains("opus")) {
-                            return@withContext format.optString("url", null)
-                        }
-                    }
-                    for (i in 0 until adaptiveFormats.length()) {
-                        val format = adaptiveFormats.getJSONObject(i)
-                        val type = format.optString("type", "")
-                        if (type.contains("audio")) {
-                            return@withContext format.optString("url", null)
-                        }
-                    }
-                }
-
-                val formatStreams = json.optJSONArray("formatStreams")
-                if (formatStreams != null && formatStreams.length() > 0) {
-                    return@withContext formatStreams.getJSONObject(0).optString("url", null)
-                }
+                Log.d("YouTubeService", "Backend proxy streams audio for $videoId")
+                return@withContext proxyUrl
             }
+
+            val body = response.body?.string() ?: ""
+            Log.e("YouTubeService", "Proxy failed: ${response.code} - $body")
             null
         } catch (e: Exception) {
+            Log.e("YouTubeService", "Stream error: ${e.message}", e)
             null
         }
-    }
-
-    private fun tryNextInstance() {
-        val idx = instances.indexOf(currentInstance)
-        currentInstance = instances[(idx + 1) % instances.size]
     }
 }

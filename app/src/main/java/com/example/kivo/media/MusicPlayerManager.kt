@@ -145,7 +145,7 @@ class MusicPlayerManager(context: Context) {
                 .setMediaId(id)
                 .setMediaMetadata(
                     MediaMetadata.Builder()
-                        .setTitle(title.ifEmpty { "Spotify" })
+                        .setTitle(title.ifEmpty { "KIVO" })
                         .setArtist(artist)
                         .build()
                 )

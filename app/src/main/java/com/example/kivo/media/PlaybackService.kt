@@ -5,13 +5,19 @@ import android.content.Intent
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.Virtualizer
+import android.net.Uri
 import android.os.Bundle
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.DefaultHttpDataSource.Factory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
@@ -35,8 +41,20 @@ class PlaybackService : MediaSessionService() {
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
 
+        val httpDataSourceFactory = Factory()
+            .setDefaultRequestProperties(
+                mapOf(
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                    "Referer" to "https://www.youtube.com/",
+                    "Origin" to "https://www.youtube.com"
+                )
+            )
+
+        val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSourceFactory)
+
         val player = ExoPlayer.Builder(this)
-            .setAudioAttributes(audioAttributes, true) // Handles focus automatically
+            .setAudioAttributes(audioAttributes, true)
+            .setMediaSourceFactory(mediaSourceFactory)
             .build()
         
         val intent = Intent(this, com.example.kivo.MainActivity::class.java)

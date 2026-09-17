@@ -15,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -166,6 +167,10 @@ fun MainAppContent(
 
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    val onMiniPlayerClick: () -> Unit = {
+        navController.navigate(Screen.Player.route)
+    }
 
     // Navegación resultante de tocar una notificación (centro o push)
     val handleNotificationTap: (KivoNotification) -> Unit = { notification ->
@@ -390,7 +395,7 @@ fun MainAppContent(
                             onFavoriteClick = { musicViewModel.toggleFavorite(currentSong!!.id) },
                             onShuffleClick = { musicViewModel.toggleShuffle() },
                             onDismiss = { musicViewModel.dismissMiniPlayer() },
-                            onClick = { navController.navigate(Screen.Player.route) }
+                            onClick = onMiniPlayerClick
                         )
                     }
                     KivoBottomNavigation(navController, currentDestination)
@@ -401,11 +406,15 @@ fun MainAppContent(
     ) { innerPadding ->
         val entry by navController.currentBackStackEntryAsState()
         val destination = entry?.destination
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+            ) {
             if (isLandscape) {
                 KivoBottomNavigationRail(navController, destination)
             }
@@ -447,11 +456,14 @@ fun MainAppContent(
             composable(Screen.Music.route) { 
                 MusicScreen(
                     viewModel = musicViewModel,
-                    onSpotifyClick = { navController.navigate(Screen.SpotifySearch.route) }
+                    onYouTubeClick = { navController.navigate(Screen.YouTubeSearch.route) }
                 ) 
             }
-            composable(Screen.SpotifySearch.route) {
-                SpotifySearchScreen(viewModel = musicViewModel)
+            composable(Screen.YouTubeSearch.route) {
+                YouTubeSearchScreen(
+                    viewModel = musicViewModel,
+                    onPlayVideo = { video -> musicViewModel.playYouTubeResult(video) }
+                )
             }
             composable(Screen.Profile.route) { 
                 ProfileScreen(
@@ -599,10 +611,11 @@ fun MainAppContent(
                         onFavoriteClick = { musicViewModel.toggleFavorite(currentSong!!.id) },
                         onShuffleClick = { musicViewModel.toggleShuffle() },
                         onDismiss = { musicViewModel.dismissMiniPlayer() },
-                        onClick = { navController.navigate(Screen.Player.route) }
+                        onClick = onMiniPlayerClick
                     )
                 }
             }
+        }
         }
     }
 }

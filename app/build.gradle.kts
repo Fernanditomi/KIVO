@@ -24,8 +24,6 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        manifestPlaceholders["appAuthRedirectScheme"] = "kivo"
-
         buildConfigField(
             "String",
             "KIVO_BASE_URL",
@@ -50,16 +48,6 @@ android {
             "String",
             "AGORA_APP_ID",
             "\"${providers.gradleProperty("AGORA_APP_ID").orElse("").get()}\""
-        )
-        buildConfigField(
-            "String",
-            "SPOTIFY_CLIENT_ID",
-            "\"${providers.gradleProperty("SPOTIFY_CLIENT_ID").orElse("").get()}\""
-        )
-        buildConfigField(
-            "String",
-            "SPOTIFY_CLIENT_SECRET",
-            "\"${providers.gradleProperty("SPOTIFY_CLIENT_SECRET").orElse("").get()}\""
         )
     }
 
@@ -120,9 +108,6 @@ dependencies {
 
     // Agora SDK para llamadas/videollamadas
     implementation("io.agora.rtc:lite-sdk:4.4.1")
-
-    // Spotify SDK
-    implementation("com.spotify.android:auth:5.0.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

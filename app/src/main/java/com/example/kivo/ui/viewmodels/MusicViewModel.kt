@@ -1,42 +1,62 @@
 package com.example.kivo.ui.viewmodels
 
-import android.app.Activity
 import android.app.Application
 import android.content.Context
-import android.content.Intent
 import android.os.Bundle
 import android.util.Log
-import androidx.activity.result.ActivityResultLauncher
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
 import com.example.kivo.data.models.Song
-import com.example.kivo.data.models.SpotifyTrack
 import com.example.kivo.data.models.kivoSongs
 import com.example.kivo.data.notifications.NotificationCenter
-import com.example.kivo.data.remote.SpotifyApiService
+import com.example.kivo.data.remote.YouTubeResult
+import com.example.kivo.data.remote.YouTubeService
 import com.example.kivo.media.MusicPlayerManager
-import com.example.kivo.media.SpotifyPlayerManager
+import com.example.kivo.media.YouTubeBackgroundPlayer
+import com.example.kivo.media.YouTubeMediaService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val playerManager = MusicPlayerManager(application)
-    val spotifyManager = SpotifyPlayerManager(application)
-    private val spotifyAuthManager = com.example.kivo.data.remote.SpotifyAuthManager(application)
     private val prefs = application.getSharedPreferences("kivo_music_prefs", Context.MODE_PRIVATE)
 
     private val _currentSong = MutableStateFlow<Song?>(null)
     val currentSong: StateFlow<Song?> = _currentSong.asStateFlow()
 
-    val isPlaying: StateFlow<Boolean> = playerManager.isPlaying
-    val playbackState: StateFlow<Int> = playerManager.playbackState
+    private val _isYouTubeSong = MutableStateFlow(false)
+    val isYouTubeSong: StateFlow<Boolean> = _isYouTubeSong.asStateFlow()
+
+    private val _youtubeIsPlaying = MutableStateFlow(false)
+    val youtubeIsPlaying: StateFlow<Boolean> = _youtubeIsPlaying.asStateFlow()
+
+    private val _youtubeCurrentTime = MutableStateFlow(0L)
+    val youtubeCurrentTime: StateFlow<Long> = _youtubeCurrentTime.asStateFlow()
+
+    private val _youtubeDuration = MutableStateFlow(0L)
+    val youtubeDuration: StateFlow<Long> = _youtubeDuration.asStateFlow()
+
+    val isPlaying: StateFlow<Boolean> = combine(
+        playerManager.isPlaying, _youtubeIsPlaying, _isYouTubeSong
+    ) { playerPlaying, ytPlaying, isYt -> if (isYt) ytPlaying else playerPlaying }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    val playbackState: StateFlow<Int> = combine(
+        playerManager.playbackState, _youtubeDuration, _isYouTubeSong
+    ) { playerState, ytDuration, isYt ->
+        if (isYt) {
+            if (ytDuration > 0) Player.STATE_READY else Player.STATE_BUFFERING
+        } else playerState
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, Player.STATE_IDLE)
+
     val errorMessage: StateFlow<String?> = playerManager.errorMessage
 
     private val _progress = MutableStateFlow(0f)
@@ -56,7 +76,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _isMiniPlayerVisible = MutableStateFlow(false)
     val isMiniPlayerVisible: StateFlow<Boolean> = _isMiniPlayerVisible.asStateFlow()
 
-    val isShuffleEnabled: StateFlow<Boolean> = playerManager.isShuffleModeEnabled
+    val isShuffleEnabled: StateFlow<Boolean> = combine(
+        playerManager.isShuffleModeEnabled, YouTubeBackgroundPlayer.isShuffleEnabled, _isYouTubeSong
+    ) { playerShuffle, ytShuffle, isYt -> if (isYt) ytShuffle else playerShuffle }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     private val _sessionFirstSongId = MutableStateFlow<String?>(null)
     private var lastPreviousClickTime = 0L
@@ -69,132 +92,152 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private var progressJob: Job? = null
 
-    // Spotify integration
-    val spotifyConnected: StateFlow<Boolean> = spotifyManager.isConnected
-    private val _spotifySearchResults = MutableStateFlow<List<SpotifyTrack>>(emptyList())
-    val spotifySearchResults: StateFlow<List<SpotifyTrack>> = _spotifySearchResults.asStateFlow()
-    private val _isSearchingSpotify = MutableStateFlow(false)
-    val isSearchingSpotify: StateFlow<Boolean> = _isSearchingSpotify.asStateFlow()
-
     // YouTube integration
-    private val youtubeService = com.example.kivo.data.remote.YouTubeService()
+    private val youtubeService = YouTubeService()
     private val _isPlayingFullSong = MutableStateFlow(false)
     val isPlayingFullSong: StateFlow<Boolean> = _isPlayingFullSong.asStateFlow()
     private val _youtubeError = MutableStateFlow<String?>(null)
     val youtubeError: StateFlow<String?> = _youtubeError.asStateFlow()
 
-    private val spotifyApiService: SpotifyApiService by lazy {
-        Retrofit.Builder()
-            .baseUrl("https://api.spotify.com/")
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-            .create(SpotifyApiService::class.java)
-    }
+    private val _youtubeSearchResults = MutableStateFlow<List<YouTubeResult>>(emptyList())
+    val youtubeSearchResults: StateFlow<List<YouTubeResult>> = _youtubeSearchResults.asStateFlow()
+    private val _isSearchingYouTube = MutableStateFlow(false)
+    val isSearchingYouTube: StateFlow<Boolean> = _isSearchingYouTube.asStateFlow()
+    private var youtubeSearchJob: Job? = null
+
+    private data class YouTubeMeta(
+        val id: String?,
+        val title: String?,
+        val artist: String?,
+        val thumbnail: String?,
+        val durationSeconds: Int
+    )
 
     init {
         restoreLastState()
         startProgressUpdate()
         observeMediaIdChanges()
+        observeYouTubePlayer()
     }
 
-    fun getSpotifyLoginIntent(activity: Activity): Intent = spotifyManager.getLoginIntent(activity)
-
-    fun handleSpotifyActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        spotifyManager.onActivityResult(requestCode, resultCode, data)
-    }
-
-    fun handleSpotifyToken(token: String) {
-        spotifyManager.setAccessToken(token)
-    }
-
-    fun searchSpotify(query: String) {
+    fun searchYouTube(query: String) {
         if (query.isBlank()) {
-            _spotifySearchResults.value = emptyList()
+            _youtubeSearchResults.value = emptyList()
             return
         }
 
-        viewModelScope.launch {
-            _isSearchingSpotify.value = true
+        youtubeSearchJob?.cancel()
+        youtubeSearchJob = viewModelScope.launch {
+            _isSearchingYouTube.value = true
+            delay(500)
             try {
-                val token = spotifyAuthManager.getAccessToken()
-                if (token == null) {
-                    _spotifySearchResults.value = emptyList()
-                    Log.e("MusicViewModel", "Failed to get Spotify token")
-                    return@launch
-                }
-                val response = spotifyApiService.search(
-                    auth = "Bearer $token",
-                    query = query,
-                    type = "track",
-                    market = "US"
-                )
-
-                if (response.isSuccessful) {
-                    _spotifySearchResults.value = response.body()?.tracks?.items ?: emptyList()
-                } else {
-                    val errorBody = response.errorBody()?.string() ?: "no body"
-                    Log.e("MusicViewModel", "Spotify search failed: ${response.code()} $errorBody")
-                    _spotifySearchResults.value = emptyList()
-                }
-            } catch (e: Exception) {
-                Log.e("MusicViewModel", "Search error: ${e.message}", e)
-                _spotifySearchResults.value = emptyList()
-            } finally {
-                _isSearchingSpotify.value = false
-            }
-        }
-    }
-
-    fun playSpotifyTrack(track: SpotifyTrack) {
-        viewModelScope.launch {
-            _isPlayingFullSong.value = true
-            _youtubeError.value = null
-
-            try {
-                val query = "${track.name} ${track.artists.joinToString(" ") { it.name }} official"
                 val results = youtubeService.search(query)
-
-                if (results.isNotEmpty()) {
-                    val video = results.first()
-                    val streamUrl = youtubeService.getStreamUrl(video.videoId)
-
-                    if (streamUrl != null) {
-                        _currentSong.value = Song(
-                            id = "yt_${video.videoId}",
-                            title = track.name,
-                            artist = track.artists.joinToString(", ") { it.name },
-                            duration = "${track.durationMs / 60000}:${String.format("%02d", (track.durationMs % 60000) / 1000)}",
-                            durationSeconds = track.durationMs / 1000,
-                            imageUrl = track.album.images.firstOrNull()?.url
-                        )
-                        _isMiniPlayerVisible.value = true
-
-                        playerManager.playFromUrl(
-                            url = streamUrl,
-                            id = "yt_${video.videoId}",
-                            title = track.name,
-                            artist = track.artists.joinToString(", ") { it.name }
-                        )
-                    } else {
-                        _youtubeError.value = "No se pudo obtener el audio"
-                    }
-                } else {
-                    _youtubeError.value = "No se encontró en YouTube"
-                }
+                _youtubeSearchResults.value = results
             } catch (e: Exception) {
-                _youtubeError.value = "Error de conexión"
+                Log.e("MusicViewModel", "YouTube search error: ${e.message}", e)
+                _youtubeSearchResults.value = emptyList()
             } finally {
-                _isPlayingFullSong.value = false
+                _isSearchingYouTube.value = false
             }
         }
     }
 
-    fun logoutSpotify() {
-        spotifyManager.logout()
-        _spotifySearchResults.value = emptyList()
+    fun playYouTubeResult(video: YouTubeResult) {
+        val results = _youtubeSearchResults.value
+        val index = results.indexOfFirst { it.videoId == video.videoId }.coerceAtLeast(0)
+        YouTubeBackgroundPlayer.setQueue(results, index)
+        playYouTubeVideo(video)
+    }
+
+    private fun playYouTubeVideo(video: YouTubeResult) {
+        _youtubeError.value = null
+        _currentSong.value = Song(
+            id = "yt_${video.videoId}",
+            title = video.title,
+            artist = video.channelName,
+            duration = formatDuration(video.lengthSeconds),
+            durationSeconds = video.lengthSeconds,
+            imageUrl = video.thumbnailUrl
+        )
+        _progress.value = 0f
+        _currentTime.value = "0:00"
+        _totalTime.value = formatDuration(video.lengthSeconds)
+        _isMiniPlayerVisible.value = true
+        _isYouTubeSong.value = true
+        if (playerManager.isPlaying.value) playerManager.pause()
+        YouTubeBackgroundPlayer.play(
+            videoId = video.videoId,
+            title = video.title,
+            artist = video.channelName,
+            thumbnail = video.thumbnailUrl,
+            durationSeconds = video.lengthSeconds
+        )
+        YouTubeMediaService.start(getApplication())
+    }
+
+    private fun observeYouTubePlayer() {
+        viewModelScope.launch {
+            combine(
+                YouTubeBackgroundPlayer.currentVideoId,
+                YouTubeBackgroundPlayer.title,
+                YouTubeBackgroundPlayer.artist,
+                YouTubeBackgroundPlayer.thumbnail,
+                YouTubeBackgroundPlayer.durationSeconds
+            ) { id, title, artist, thumbnail, duration ->
+                YouTubeMeta(id, title, artist, thumbnail, duration)
+            }.collect { meta ->
+                if (meta.id != null) {
+                    Log.d("MusicViewModel", "YT now playing: ${meta.id}")
+                }
+                if (meta.id != null && _isYouTubeSong.value) {
+                    val song = Song(
+                        id = "yt_${meta.id}",
+                        title = meta.title ?: "",
+                        artist = meta.artist ?: "",
+                        duration = formatDuration(meta.durationSeconds),
+                        durationSeconds = meta.durationSeconds,
+                        imageUrl = meta.thumbnail
+                    )
+                    if (song != _currentSong.value) {
+                        _currentSong.value = song
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            combine(
+                YouTubeBackgroundPlayer.isPlaying,
+                YouTubeBackgroundPlayer.positionMs,
+                YouTubeBackgroundPlayer.durationMs
+            ) { playing, pos, dur -> Triple(playing, pos, dur) }
+                .collect { (playing, pos, dur) ->
+                    _youtubeIsPlaying.value = playing
+                    _youtubeCurrentTime.value = pos
+                    _youtubeDuration.value = dur
+                    if (_isYouTubeSong.value) {
+                        _progress.value = if (dur > 0) pos.toFloat() / dur else 0f
+                        _currentTime.value = formatTime(pos)
+                        _totalTime.value = formatTime(dur)
+                    }
+                }
+        }
     }
 
     private fun restoreLastState() {
+        val ytId = YouTubeBackgroundPlayer.currentVideoId.value
+        if (ytId != null) {
+            _currentSong.value = Song(
+                id = "yt_$ytId",
+                title = YouTubeBackgroundPlayer.title.value ?: "",
+                artist = YouTubeBackgroundPlayer.artist.value ?: "",
+                duration = formatDuration(YouTubeBackgroundPlayer.durationSeconds.value),
+                durationSeconds = YouTubeBackgroundPlayer.durationSeconds.value,
+                imageUrl = YouTubeBackgroundPlayer.thumbnail.value
+            )
+            _isYouTubeSong.value = true
+            _isMiniPlayerVisible.value = true
+            return
+        }
         val lastSongId = prefs.getString("last_song_id", null)
         if (lastSongId != null) {
             _currentSong.value = kivoSongs.find { it.id == lastSongId }
@@ -220,35 +263,27 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         progressJob = viewModelScope.launch {
             var endedNotifiedFor: String? = null
             while (true) {
-                if (spotifyManager.isConnected.value && spotifyManager.currentTrack.value != null) {
-                    val track = spotifyManager.currentTrack.value
-                    val duration = spotifyManager.duration.value
-                    val position = spotifyManager.getPosition()
-
-                    if (track != null && duration > 0) {
-                        _progress.value = position.toFloat() / duration
-                        _currentTime.value = formatTime(position)
+                if (_isYouTubeSong.value) {
+                    delay(1000)
+                    continue
+                }
+                val player = playerManager.getPlayer()
+                if (player != null) {
+                    val duration = player.duration.coerceAtLeast(0L)
+                    val currentPos = player.currentPosition.coerceAtLeast(0L)
+                    if (duration > 0) {
+                        _progress.value = currentPos.toFloat() / duration
+                        _currentTime.value = formatTime(currentPos)
                         _totalTime.value = formatTime(duration)
                     }
-                } else {
-                    val player = playerManager.getPlayer()
-                    if (player != null) {
-                        val duration = player.duration.coerceAtLeast(0L)
-                        val currentPos = player.currentPosition.coerceAtLeast(0L)
-                        if (duration > 0) {
-                            _progress.value = currentPos.toFloat() / duration
-                            _currentTime.value = formatTime(currentPos)
-                            _totalTime.value = formatTime(duration)
+                    if (player.playbackState == Player.STATE_ENDED) {
+                        val song = _currentSong.value
+                        if (song != null && endedNotifiedFor != song.id) {
+                            endedNotifiedFor = song.id
+                            NotificationCenter.songFinished(song)
                         }
-                        if (player.playbackState == Player.STATE_ENDED) {
-                            val song = _currentSong.value
-                            if (song != null && endedNotifiedFor != song.id) {
-                                endedNotifiedFor = song.id
-                                NotificationCenter.songFinished(song)
-                            }
-                        } else {
-                            endedNotifiedFor = null
-                        }
+                    } else {
+                        endedNotifiedFor = null
                     }
                 }
                 delay(1000)
@@ -262,20 +297,26 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         return String.format("%d:%02d", minutes, seconds)
     }
 
+    private fun formatDuration(seconds: Int): String {
+        val minutes = seconds / 60
+        val secs = seconds % 60
+        return String.format("%d:%02d", minutes, secs)
+    }
+
     fun togglePlayPause() {
         _isMiniPlayerVisible.value = true
-        if (spotifyManager.isConnected.value) {
-            spotifyManager.togglePlayPause()
+        if (_isYouTubeSong.value) {
+            YouTubeBackgroundPlayer.toggle()
+            return
+        }
+        if (playerManager.isPlaying.value) {
+            playerManager.pause()
         } else {
-            if (playerManager.isPlaying.value) {
-                playerManager.pause()
+            val player = playerManager.getPlayer()
+            if (player == null || player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+                _currentSong.value?.let { playSong(it) }
             } else {
-                val player = playerManager.getPlayer()
-                if (player == null || player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
-                    _currentSong.value?.let { playSong(it) }
-                } else {
-                    playerManager.resume()
-                }
+                playerManager.resume()
             }
         }
     }
@@ -296,8 +337,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleShuffle() {
-        if (spotifyManager.isConnected.value) {
-            spotifyManager.toggleShuffle()
+        if (_isYouTubeSong.value) {
+            YouTubeBackgroundPlayer.toggleShuffle()
         } else {
             playerManager.toggleShuffle()
         }
@@ -312,9 +353,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 it.title.contains(query, ignoreCase = true) ||
                 it.artist.contains(query, ignoreCase = true)
             }
-            if (spotifyManager.isConnected.value) {
-                searchSpotify(query)
-            }
         }
     }
 
@@ -323,6 +361,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             _sessionFirstSongId.value = song.id
         }
         _isMiniPlayerVisible.value = true
+        if (_isYouTubeSong.value) {
+            YouTubeBackgroundPlayer.stop()
+            _isYouTubeSong.value = false
+        }
         _currentSong.value = song
         playerManager.play(song)
         _progress.value = 0f
@@ -330,21 +372,23 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun nextSong() {
-        if (spotifyManager.isConnected.value) {
-            spotifyManager.skipToNext()
-        } else {
-            playerManager.next()
+        if (_isYouTubeSong.value) {
+            YouTubeBackgroundPlayer.next()
             _progress.value = 0f
+            _currentTime.value = "0:00"
+            return
         }
+        playerManager.next()
+        _progress.value = 0f
     }
 
     fun previousSong() {
-        if (spotifyManager.isConnected.value) {
-            spotifyManager.skipToPrevious()
+        if (_isYouTubeSong.value) {
+            YouTubeBackgroundPlayer.previous()
             _progress.value = 0f
+            _currentTime.value = "0:00"
             return
         }
-
         val player = playerManager.getPlayer() ?: return
         val currentTime = System.currentTimeMillis()
         val timeSinceLastClick = currentTime - lastPreviousClickTime
@@ -370,44 +414,43 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun seekForward() {
-        if (spotifyManager.isConnected.value) {
-            val current = spotifyManager.getPosition()
-            spotifyManager.seekTo((current + 10000).toInt())
-        } else {
-            playerManager.seekForward()
+        if (_isYouTubeSong.value) {
+            YouTubeBackgroundPlayer.seekForward(10000L)
+            return
         }
+        playerManager.seekForward()
     }
 
     fun seekBackward() {
-        if (spotifyManager.isConnected.value) {
-            val current = spotifyManager.getPosition()
-            spotifyManager.seekTo((current - 10000).toInt().coerceAtLeast(0))
-        } else {
-            playerManager.seekBackward()
+        if (_isYouTubeSong.value) {
+            YouTubeBackgroundPlayer.seekBackward(10000L)
+            return
         }
+        playerManager.seekBackward()
     }
 
     fun dismissMiniPlayer() {
         _isMiniPlayerVisible.value = false
-        if (spotifyManager.isConnected.value) {
-            spotifyManager.pause()
+        if (_isYouTubeSong.value) {
+            YouTubeBackgroundPlayer.stop()
         } else {
             playerManager.pause()
         }
     }
 
     fun updateProgress(value: Float) {
+        if (_isYouTubeSong.value) {
+            val duration = YouTubeBackgroundPlayer.durationMs.value
+            if (duration > 0) {
+                YouTubeBackgroundPlayer.seekTo((value * duration).toLong())
+            }
+            _progress.value = value
+            return
+        }
         _progress.value = value
-        if (spotifyManager.isConnected.value) {
-            val duration = spotifyManager.getDuration()
-            if (duration > 0) {
-                spotifyManager.seekTo((value * duration).toInt())
-            }
-        } else {
-            val duration = playerManager.getPlayer()?.duration ?: 0L
-            if (duration > 0) {
-                playerManager.seekTo((value * duration).toLong())
-            }
+        val duration = playerManager.getPlayer()?.duration ?: 0L
+        if (duration > 0) {
+            playerManager.seekTo((value * duration).toLong())
         }
     }
 
