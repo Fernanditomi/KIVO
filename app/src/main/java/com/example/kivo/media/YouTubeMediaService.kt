@@ -351,10 +351,10 @@ class YouTubeMediaService : Service() {
             if (manager?.getNotificationChannel(CHANNEL_ID) == null) {
                 val channel = NotificationChannel(
                     CHANNEL_ID,
-                    "Reproducción de YouTube",
+                    "Reproducción de KIVO",
                     NotificationManager.IMPORTANCE_LOW
                 ).apply {
-                    description = "Controles de reproducción de YouTube"
+                    description = "Controles de reproducción de KIVO"
                     setShowBadge(false)
                 }
                 manager?.createNotificationChannel(channel)

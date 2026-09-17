@@ -44,7 +44,7 @@ fun YouTubeSearchScreen(
                 .padding(horizontal = 16.dp)
         ) {
             Text(
-                text = "YOUTUBE",
+                text = "KIVO",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Black,
                 color = Color.White,
@@ -63,7 +63,7 @@ fun YouTubeSearchScreen(
                     .height(56.dp)
                     .clip(RoundedCornerShape(16.dp)),
                 placeholder = {
-                    Text("Buscar en YouTube...", color = KivoTextDisabled, fontSize = 14.sp)
+                    Text("Buscar en KIVO...", color = KivoTextDisabled, fontSize = 14.sp)
                 },
                 leadingIcon = {
                     Icon(Icons.Default.Search, contentDescription = null, tint = KivoTextDisabled)
@@ -118,7 +118,7 @@ fun YouTubeSearchScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Busca cualquier canción en YouTube",
+                            "Busca cualquier canción en KIVO",
                             color = KivoTextDisabled,
                             fontSize = 14.sp
                         )

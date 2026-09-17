@@ -92,7 +92,7 @@ class MainActivity : ComponentActivity() {
                         title = { Text("Reproducción en segundo plano") },
                         text = {
                             Text(
-                                "Para que la música de YouTube siga sonando con la pantalla apagada " +
+                                "Para que la música de KIVO siga sonando con la pantalla apagada " +
                                     "o usando otras apps, KIVO necesita el permiso \"Aparecer encima " +
                                     "de otras apps\"."
                             )

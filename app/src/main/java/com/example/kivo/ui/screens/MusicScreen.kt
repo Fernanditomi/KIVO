@@ -84,7 +84,7 @@ fun MusicScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        "Buscar en YouTube",
+                        "Buscar en KIVO",
                         fontSize = 12.sp
                     )
                 }
