@@ -18,9 +18,13 @@ android {
     defaultConfig {
         applicationId = "com.example.kivo"
         minSdk = 24
-        targetSdk = 37
+        targetSdk = 35
         versionCode = 4
         versionName = "1.3.0"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -53,6 +57,7 @@ android {
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("debug")
             optimization {
                 enable = false
             }
