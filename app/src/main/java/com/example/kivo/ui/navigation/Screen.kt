@@ -46,6 +46,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object Notifications : Screen("notifications", "Notificaciones", Icons.Default.Notifications)
     object NotificationSettings : Screen("notification_settings", "Configuración de notificaciones", Icons.Default.Settings)
     object YouTubeSearch : Screen("youtube_search", "Buscar en KIVO", Icons.Default.MusicNote)
+    object SavedSongs : Screen("saved_songs", "Canciones guardadas", Icons.Default.MusicNote)
 }
 
 val bottomNavItems = listOf(

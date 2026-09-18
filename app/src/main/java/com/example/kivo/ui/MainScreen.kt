@@ -456,8 +456,15 @@ fun MainAppContent(
             composable(Screen.Music.route) { 
                 MusicScreen(
                     viewModel = musicViewModel,
-                    onYouTubeClick = { navController.navigate(Screen.YouTubeSearch.route) }
+                    onYouTubeClick = { navController.navigate(Screen.YouTubeSearch.route) },
+                    onSavedSongsClick = { navController.navigate(Screen.SavedSongs.route) }
                 ) 
+            }
+            composable(Screen.SavedSongs.route) {
+                SavedSongsScreen(
+                    viewModel = musicViewModel,
+                    onBack = { navController.popBackStack() }
+                )
             }
             composable(Screen.YouTubeSearch.route) {
                 YouTubeSearchScreen(
@@ -469,7 +476,8 @@ fun MainAppContent(
                 ProfileScreen(
                     viewModel = profileViewModel,
                     onEditClick = { navController.navigate(Screen.EditProfile.route) },
-                    onNotificationSettingsClick = { navController.navigate(Screen.NotificationSettings.route) }
+                    onNotificationSettingsClick = { navController.navigate(Screen.NotificationSettings.route) },
+                    onSavedSongsClick = { navController.navigate(Screen.SavedSongs.route) }
                 ) 
             }
             composable(Screen.Player.route) { 

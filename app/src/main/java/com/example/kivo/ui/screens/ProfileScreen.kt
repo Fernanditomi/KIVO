@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.kivo.data.models.kivoSongs
 import com.example.kivo.data.remote.ApiClient
 import com.example.kivo.ui.theme.*
 import com.example.kivo.ui.viewmodels.ProfileViewModel
@@ -40,7 +41,8 @@ fun ProfileScreen(
     viewModel: ProfileViewModel,
     authViewModel: AuthViewModel = viewModel(),
     onEditClick: () -> Unit,
-    onNotificationSettingsClick: () -> Unit
+    onNotificationSettingsClick: () -> Unit,
+    onSavedSongsClick: () -> Unit
 ) {
     val name by viewModel.name.collectAsState()
     val username by viewModel.username.collectAsState()
@@ -117,6 +119,17 @@ fun ProfileScreen(
                         modifier = Modifier.padding(vertical = 8.dp)
                     )
                 }
+            }
+
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                KivoSectionTitle("CANCIONES GUARDADAS")
+            }
+
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                KivoSavedSongsCard(
+                    count = kivoSongs.size,
+                    onClick = onSavedSongsClick
+                )
             }
 
             item(span = { GridItemSpan(maxLineSpan) }) {
