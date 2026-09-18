@@ -14,6 +14,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.DefaultHttpDataSource.Factory
 import androidx.media3.exoplayer.ExoPlayer
@@ -50,7 +51,9 @@ class PlaybackService : MediaSessionService() {
                 )
             )
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSourceFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(
+            DefaultDataSource.Factory(this, httpDataSourceFactory)
+        )
 
         val player = ExoPlayer.Builder(this)
             .setAudioAttributes(audioAttributes, true)
