@@ -84,11 +84,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _sessionFirstSongId = MutableStateFlow<String?>(null)
     private var lastPreviousClickTime = 0L
 
-    private val _searchQuery = MutableStateFlow("")
-    val searchQuery = _searchQuery.asStateFlow()
-
-    private val _filteredSongs = MutableStateFlow(kivoSongs)
-    val filteredSongs = _filteredSongs.asStateFlow()
+    private val _songs = MutableStateFlow(kivoSongs)
+    val songs: StateFlow<List<Song>> = _songs.asStateFlow()
 
     private var progressJob: Job? = null
 
@@ -341,18 +338,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             YouTubeBackgroundPlayer.toggleShuffle()
         } else {
             playerManager.toggleShuffle()
-        }
-    }
-
-    fun updateSearchQuery(query: String) {
-        _searchQuery.value = query
-        if (query.isBlank()) {
-            _filteredSongs.value = kivoSongs
-        } else {
-            _filteredSongs.value = kivoSongs.filter {
-                it.title.contains(query, ignoreCase = true) ||
-                it.artist.contains(query, ignoreCase = true)
-            }
         }
     }
 
